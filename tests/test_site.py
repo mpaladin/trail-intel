@@ -160,6 +160,10 @@ class SiteExportTests(unittest.TestCase):
             self.assertNotIn("Trail du Test 2026", forecasts_index)
             self.assertIn("reports/index.html", landing_index)
             self.assertIn("forecasts/index.html", landing_index)
+            self.assertIn('href="trail-du-test/20260404-120000/index.html"', reports_index)
+            self.assertNotIn('href="reports/trail-du-test/20260404-120000/index.html"', reports_index)
+            self.assertIn('href="dolomite-dawn/20260701-054500/index.html"', forecasts_index)
+            self.assertNotIn('href="forecasts/dolomite-dawn/20260701-054500/index.html"', forecasts_index)
 
 
 if __name__ == "__main__":
