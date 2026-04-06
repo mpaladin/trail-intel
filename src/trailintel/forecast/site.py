@@ -5,9 +5,8 @@ import html
 import json
 from pathlib import Path
 import shutil
+from typing import TYPE_CHECKING
 
-from trailintel.forecast.engine import ForecastSummary
-from trailintel.forecast.models import ForecastReport
 from trailintel.github_pipeline import normalize_slug_text
 from trailintel.site import (
     FORECAST_REPORT_KIND,
@@ -15,6 +14,10 @@ from trailintel.site import (
     REPORT_META_FILENAME,
     copy_bundle_to_targets,
 )
+
+if TYPE_CHECKING:
+    from trailintel.forecast.engine import ForecastSummary
+    from trailintel.forecast.models import ForecastReport
 
 FORECAST_PNG_FILENAME = "forecast.png"
 FORECAST_GPX_FILENAME = "route.gpx"
