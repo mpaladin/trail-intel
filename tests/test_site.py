@@ -3,16 +3,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import tempfile
 import unittest
+import json
+from pathlib import Path
 
 from trailintel.models import AthleteRecord
 from trailintel.site import (
+    FORECASTS_SECTION_DIR,
     REPORT_CSV_FILENAME,
     REPORT_HTML_FILENAME,
     REPORT_JSON_FILENAME,
     REPORT_META_FILENAME,
+    REPORTS_SECTION_DIR,
     REPORT_SNAPSHOT_FILENAME,
     build_report_snapshot,
     export_report_site,
+    refresh_site_index,
 )
 
 
@@ -100,6 +105,61 @@ class SiteExportTests(unittest.TestCase):
             self.assertIn("Alice", csv_text)
             self.assertIn("Bob", csv_text)
             self.assertIn('"Athlete": "Alice"', json_text)
+
+    def test_refresh_site_index_separates_races_and_forecasts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            race_dir = root / REPORTS_SECTION_DIR / "trail-du-test" / "20260404-120000"
+            forecast_dir = root / FORECASTS_SECTION_DIR / "dolomite-dawn" / "20260701-054500"
+            race_dir.mkdir(parents=True, exist_ok=True)
+            forecast_dir.mkdir(parents=True, exist_ok=True)
+
+            (race_dir / REPORT_META_FILENAME).write_text(
+                json.dumps(
+                    {
+                        "report_kind": "race",
+                        "title": "Trail du Test 2026",
+                        "participants_count": 2,
+                        "qualified_count": 1,
+                        "strategy": "participant-first",
+                        "published_at": "2026-04-04T12:00:00+00:00",
+                        "report_path": "reports/trail-du-test/20260404-120000/index.html",
+                        "csv_path": "reports/trail-du-test/20260404-120000/report.csv",
+                        "json_path": "reports/trail-du-test/20260404-120000/report.json",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (forecast_dir / REPORT_META_FILENAME).write_text(
+                json.dumps(
+                    {
+                        "report_kind": "forecast",
+                        "title": "Dolomite Dawn",
+                        "route_distance_km": 18.2,
+                        "start_time": "2026-07-15T06:30:00+02:00",
+                        "duration": "03:30",
+                        "published_at": "2026-07-01T05:45:00+00:00",
+                        "report_path": "forecasts/dolomite-dawn/20260701-054500/index.html",
+                        "png_path": "forecasts/dolomite-dawn/20260701-054500/forecast.png",
+                        "gpx_path": "forecasts/dolomite-dawn/20260701-054500/route.gpx",
+                        "json_path": "forecasts/dolomite-dawn/20260701-054500/snapshot.json",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            refresh_site_index(root)
+
+            reports_index = (root / REPORTS_SECTION_DIR / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
+            forecasts_index = (root / FORECASTS_SECTION_DIR / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
+            landing_index = (root / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
+
+            self.assertIn("Trail du Test 2026", reports_index)
+            self.assertNotIn("Dolomite Dawn", reports_index)
+            self.assertIn("Dolomite Dawn", forecasts_index)
+            self.assertNotIn("Trail du Test 2026", forecasts_index)
+            self.assertIn("reports/index.html", landing_index)
+            self.assertIn("forecasts/index.html", landing_index)
 
 
 if __name__ == "__main__":

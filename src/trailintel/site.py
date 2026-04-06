@@ -18,6 +18,10 @@ REPORT_JSON_FILENAME = "report.json"
 REPORT_HTML_FILENAME = "index.html"
 REPORT_SNAPSHOT_FILENAME = "snapshot.json"
 REPORT_META_FILENAME = "report-meta.json"
+RACE_REPORT_KIND = "race"
+FORECAST_REPORT_KIND = "forecast"
+REPORTS_SECTION_DIR = "reports"
+FORECASTS_SECTION_DIR = "forecasts"
 
 
 def _score_fmt(value: float | None) -> str:
@@ -172,6 +176,7 @@ def build_report_snapshot(
     score_summary["participants"] = participants_count
     stamp = generated_at or datetime.now(UTC)
     return {
+        "report_kind": RACE_REPORT_KIND,
         "title": title,
         "participants_count": participants_count,
         "rows_evaluated": len(all_records),
@@ -485,6 +490,7 @@ def render_report_html(
 
 def build_report_metadata(snapshot: dict[str, object]) -> dict[str, object]:
     return {
+        "report_kind": snapshot.get("report_kind", RACE_REPORT_KIND),
         "title": snapshot.get("title", "Trail Race Report"),
         "generated_at": snapshot.get("generated_at"),
         "participants_count": int(snapshot.get("participants_count", 0) or 0),
@@ -549,9 +555,18 @@ def export_report_site(
     return path
 
 
-def _sorted_site_report_entries(site_root: Path) -> list[dict[str, object]]:
+def _sorted_section_entries(
+    site_root: Path,
+    *,
+    section: str,
+    report_kind: str,
+) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
-    for meta_path in site_root.rglob(REPORT_META_FILENAME):
+    section_root = site_root / section
+    if not section_root.exists():
+        return []
+
+    for meta_path in section_root.rglob(REPORT_META_FILENAME):
         if "latest" in meta_path.parts:
             continue
         try:
@@ -561,9 +576,13 @@ def _sorted_site_report_entries(site_root: Path) -> list[dict[str, object]]:
         if not isinstance(payload, dict):
             continue
         relative_dir = meta_path.parent.relative_to(site_root)
+        payload.setdefault("report_kind", report_kind)
         payload.setdefault("report_path", f"{relative_dir.as_posix()}/{REPORT_HTML_FILENAME}")
-        payload.setdefault("csv_path", f"{relative_dir.as_posix()}/{REPORT_CSV_FILENAME}")
-        payload.setdefault("json_path", f"{relative_dir.as_posix()}/{REPORT_JSON_FILENAME}")
+        if report_kind == RACE_REPORT_KIND:
+            payload.setdefault("csv_path", f"{relative_dir.as_posix()}/{REPORT_CSV_FILENAME}")
+            payload.setdefault("json_path", f"{relative_dir.as_posix()}/{REPORT_JSON_FILENAME}")
+        else:
+            payload.setdefault("json_path", f"{relative_dir.as_posix()}/{REPORT_SNAPSHOT_FILENAME}")
         entries.append(payload)
 
     def sort_key(item: dict[str, object]) -> tuple[str, str]:
@@ -662,25 +681,218 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
 """
 
 
+def render_forecast_index(
+    entries: list[dict[str, object]],
+    *,
+    site_title: str = "Route Forecasts",
+) -> str:
+    cards: list[str] = []
+    for entry in entries:
+        title = html.escape(str(entry.get("title") or "Route Forecast"))
+        published_at = _parse_iso_timestamp(entry.get("published_at") or entry.get("generated_at"))
+        published_text = (
+            published_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+            if published_at is not None
+            else "Unknown time"
+        )
+        report_path = html.escape(str(entry.get("report_path") or "#"), quote=True)
+        png_path = html.escape(str(entry.get("png_path") or "#"), quote=True)
+        gpx_path = html.escape(str(entry.get("gpx_path") or "#"), quote=True)
+        json_path = html.escape(str(entry.get("json_path") or "#"), quote=True)
+        start_time = html.escape(str(entry.get("start_time") or ""))
+        duration = html.escape(str(entry.get("duration") or ""))
+        distance_km = float(entry.get("route_distance_km", 0.0) or 0.0)
+        cards.append(
+            f"""
+            <article class="report-card">
+              <div class="report-card-head">
+                <h2><a href="{report_path}">{title}</a></h2>
+                <p>{published_text}</p>
+              </div>
+              <div class="report-card-metrics">
+                <span>Start: <strong>{start_time}</strong></span>
+                <span>Duration: <strong>{duration}</strong></span>
+                <span>Distance: <strong>{distance_km:.2f} km</strong></span>
+              </div>
+              <div class="report-card-links">
+                <a href="{report_path}">Open report</a>
+                <a href="{png_path}">PNG</a>
+                <a href="{gpx_path}">GPX</a>
+                <a href="{json_path}">JSON</a>
+              </div>
+            </article>
+            """
+        )
+
+    if not cards:
+        cards.append('<div class="empty-state">No published forecasts yet.</div>')
+
+    safe_title = html.escape(site_title)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{safe_title}</title>
+  <style>
+    :root {{
+      --bg: #f2efe8;
+      --panel: #fffdf9;
+      --text: #1d1f1a;
+      --muted: #645d52;
+      --accent: #0e5b85;
+      --border: #ddd1bc;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: linear-gradient(180deg, #faf7f0 0%, var(--bg) 100%); color: var(--text); }}
+    .page {{ max-width: 980px; margin: 0 auto; padding: 28px 18px 42px; }}
+    .hero {{ padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 24px; }}
+    .hero h1 {{ margin: 0 0 8px; font-size: clamp(1.8rem, 3.5vw, 2.7rem); }}
+    .hero p {{ margin: 0; color: var(--muted); }}
+    .report-list {{ display: grid; gap: 14px; margin-top: 20px; }}
+    .report-card {{ padding: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; }}
+    .report-card-head h2 {{ margin: 0; font-size: 1.25rem; }}
+    .report-card-head p {{ margin: 6px 0 0; color: var(--muted); }}
+    .report-card-metrics {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted); }}
+    .report-card-links {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }}
+    a {{ color: var(--accent); text-decoration: none; font-weight: 700; }}
+    .empty-state {{ padding: 16px; border-radius: 16px; border: 1px dashed var(--border); color: var(--muted); background: rgba(255,255,255,0.5); }}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>{safe_title}</h1>
+      <p>Static route forecasts published by the TrailIntel GitHub Actions pipeline.</p>
+    </section>
+    <section class="report-list">
+      {''.join(cards)}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def render_root_index(
+    *,
+    race_entries: list[dict[str, object]],
+    forecast_entries: list[dict[str, object]],
+) -> str:
+    race_count = len(race_entries)
+    forecast_count = len(forecast_entries)
+    latest_race = html.escape(str(race_entries[0].get("title") or "")) if race_entries else "No published race reports yet"
+    latest_forecast = (
+        html.escape(str(forecast_entries[0].get("title") or ""))
+        if forecast_entries
+        else "No published forecasts yet"
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TrailIntel Pages</title>
+  <style>
+    :root {{
+      --bg: #f4efe6;
+      --panel: #fffdf9;
+      --text: #1f1e1a;
+      --muted: #625d53;
+      --border: #ddd1bc;
+      --shadow: 0 18px 40px rgba(30, 24, 17, 0.08);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: radial-gradient(circle at top, #fbf7ef 0%, var(--bg) 60%, #eae0d2 100%); color: var(--text); }}
+    .page {{ max-width: 1040px; margin: 0 auto; padding: 30px 20px 46px; }}
+    .hero {{ padding: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 26px; box-shadow: var(--shadow); }}
+    .hero h1 {{ margin: 0 0 10px; font-size: clamp(2rem, 4vw, 3rem); }}
+    .hero p {{ margin: 0; color: var(--muted); }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 24px; }}
+    .card {{ padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow); }}
+    .card h2 {{ margin: 0 0 8px; }}
+    .card p {{ margin: 0; color: var(--muted); }}
+    .count {{ margin-top: 16px; font-size: 2.4rem; font-weight: 800; }}
+    .links {{ display: flex; gap: 14px; margin-top: 16px; flex-wrap: wrap; }}
+    a {{ color: #165d52; text-decoration: none; font-weight: 700; }}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>TrailIntel Pages</h1>
+      <p>Published race reports and route forecasts generated by the TrailIntel workflows.</p>
+    </section>
+    <section class="grid">
+      <article class="card">
+        <h2>Race Reports</h2>
+        <p>{latest_race}</p>
+        <div class="count">{race_count}</div>
+        <div class="links">
+          <a href="{REPORTS_SECTION_DIR}/index.html">Open race reports</a>
+        </div>
+      </article>
+      <article class="card">
+        <h2>Forecast Reports</h2>
+        <p>{latest_forecast}</p>
+        <div class="count">{forecast_count}</div>
+        <div class="links">
+          <a href="{FORECASTS_SECTION_DIR}/index.html">Open forecasts</a>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
 def refresh_site_index(site_root: str | Path) -> Path:
     root = Path(site_root)
     root.mkdir(parents=True, exist_ok=True)
+    reports_root = root / REPORTS_SECTION_DIR
+    forecasts_root = root / FORECASTS_SECTION_DIR
+    reports_root.mkdir(parents=True, exist_ok=True)
+    forecasts_root.mkdir(parents=True, exist_ok=True)
+
+    race_entries = _sorted_section_entries(
+        root,
+        section=REPORTS_SECTION_DIR,
+        report_kind=RACE_REPORT_KIND,
+    )
+    forecast_entries = _sorted_section_entries(
+        root,
+        section=FORECASTS_SECTION_DIR,
+        report_kind=FORECAST_REPORT_KIND,
+    )
+
+    (reports_root / REPORT_HTML_FILENAME).write_text(
+        render_site_index(race_entries),
+        encoding="utf-8",
+    )
+    (forecasts_root / REPORT_HTML_FILENAME).write_text(
+        render_forecast_index(forecast_entries),
+        encoding="utf-8",
+    )
     index_path = root / REPORT_HTML_FILENAME
     index_path.write_text(
-        render_site_index(_sorted_site_report_entries(root)),
+        render_root_index(race_entries=race_entries, forecast_entries=forecast_entries),
         encoding="utf-8",
     )
     return index_path
 
 
-def publish_bundle_to_site(
+def copy_bundle_to_targets(
     *,
     source_dir: str | Path,
     site_root: str | Path,
     report_dir: str,
     latest_dir: str,
     published_metadata: dict[str, object],
-) -> dict[str, str]:
+    asset_paths: dict[str, str],
+) -> None:
     source = Path(source_dir)
     root = Path(site_root)
     root.mkdir(parents=True, exist_ok=True)
@@ -703,12 +915,33 @@ def publish_bundle_to_site(
                 existing = {}
         combined = {**existing, **published_metadata}
         relative_dir = target.relative_to(root).as_posix()
-        combined["report_path"] = f"{relative_dir}/{REPORT_HTML_FILENAME}"
-        combined["csv_path"] = f"{relative_dir}/{REPORT_CSV_FILENAME}"
-        combined["json_path"] = f"{relative_dir}/{REPORT_JSON_FILENAME}"
+        for key, filename in asset_paths.items():
+            combined[key] = f"{relative_dir}/{filename}"
         meta_path.write_text(json.dumps(combined, indent=2, ensure_ascii=False), encoding="utf-8")
 
     refresh_site_index(root)
+
+
+def publish_bundle_to_site(
+    *,
+    source_dir: str | Path,
+    site_root: str | Path,
+    report_dir: str,
+    latest_dir: str,
+    published_metadata: dict[str, object],
+) -> dict[str, str]:
+    copy_bundle_to_targets(
+        source_dir=source_dir,
+        site_root=site_root,
+        report_dir=report_dir,
+        latest_dir=latest_dir,
+        published_metadata=published_metadata,
+        asset_paths={
+            "report_path": REPORT_HTML_FILENAME,
+            "csv_path": REPORT_CSV_FILENAME,
+            "json_path": REPORT_JSON_FILENAME,
+        },
+    )
     return {
         "timestamp_report": f"{report_dir}/{REPORT_HTML_FILENAME}",
         "latest_report": f"{latest_dir}/{REPORT_HTML_FILENAME}",
@@ -719,7 +952,11 @@ def publish_bundle_to_site(
 
 def default_site_title_from_reports(site_root: str | Path) -> str:
     root = Path(site_root)
-    entries = _sorted_site_report_entries(root)
+    entries = _sorted_section_entries(
+        root,
+        section=REPORTS_SECTION_DIR,
+        report_kind=RACE_REPORT_KIND,
+    )
     if not entries:
         return "Trail Race Reports"
     first_title = str(entries[0].get("title") or "").strip()

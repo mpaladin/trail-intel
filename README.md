@@ -6,6 +6,12 @@ with:
 - UTMB index (`api.utmb.world`)
 - ITRA score (best-effort via `itra.run` search API; may be blocked by CloudFront)
 
+It also includes a route-forecast pipeline that turns a GPX + start time into:
+
+- a forecast PNG
+- a browsable static HTML forecast report
+- a GitHub issue driven publish workflow for GitHub Pages
+
 ## Features
 
 - Input participants from:
@@ -24,6 +30,8 @@ with:
 - Optional manual ITRA overrides file when live ITRA is blocked
 - Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
 - Persistent DuckDB cache for participant-first athlete lookups
+- Separate `trailintel-forecast` CLI for GPX weather reports
+- Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
 
 ## Install
 
@@ -38,6 +46,12 @@ Primary CLI command:
 
 ```bash
 trailintel --help
+```
+
+Forecast CLI command:
+
+```bash
+trailintel-forecast --help
 ```
 
 ## Usage
@@ -58,6 +72,54 @@ The UI supports:
   - `keep_all`: keep all same-name candidates (participant-first)
 - strict threshold filtering (`> score`)
 - persistent cache controls (enable/disable, force refresh)
+
+### Forecast CLI
+
+```bash
+trailintel-forecast forecast \
+  ./tests/fixtures/sample_route.gpx \
+  --start 2026-07-15T06:30:00+02:00 \
+  --duration 03:30 \
+  --output ./dist/forecast.png
+```
+
+If the start timestamp is naive, pass a timezone explicitly:
+
+```bash
+trailintel-forecast forecast \
+  ./route.gpx \
+  --start 2026-07-15T06:30 \
+  --timezone Europe/Rome \
+  --duration 03:30 \
+  --output ./dist/forecast.png
+```
+
+To export the browsable static bundle as well:
+
+```bash
+trailintel-forecast forecast \
+  ./route.gpx \
+  --start 2026-07-15T06:30 \
+  --timezone Europe/Rome \
+  --duration 03:30 \
+  --output ./dist/forecast.png \
+  --site-dir ./dist/forecast-site
+```
+
+Forecast bundles contain:
+
+- `index.html`
+- `forecast.png`
+- `snapshot.json`
+- `report-meta.json`
+- `route.gpx`
+
+The HTML forecast page includes:
+
+- route summary cards
+- the generated PNG chart
+- per-sample weather rows across the route
+- download links for PNG, GPX, and JSON
 
 ### 1) From race URL
 
@@ -218,6 +280,8 @@ The repo now includes a serverless publishing path:
 
 - `.github/ISSUE_TEMPLATE/generate-race-report.yml`
 - `.github/workflows/generate-race-report.yml`
+- `.github/ISSUE_TEMPLATE/generate-forecast-report.yml`
+- `.github/workflows/generate-forecast-report.yml`
 
 Recommended setup:
 
@@ -237,7 +301,21 @@ Request flow:
 2. Fill in race name, race URL, optional competition, threshold, top rows, and strategy.
 3. The workflow validates the requester, runs the CLI, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
 
+Forecast request flow:
+
+1. Open the `Generate forecast report` issue form.
+2. Fill in route name, start date, start time, timezone, duration, and either:
+   - a direct GPX/ZIP URL in `GPX URL`, or
+   - one ZIP attachment containing exactly one GPX in `Notes`
+3. The workflow downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
+
 The hosted workflow uses anonymous/public ITRA access only. It does not require an ITRA cookie.
+
+Published Pages layout:
+
+- race reports: `/reports/<slug>/<timestamp>/` and `/reports/<slug>/latest/`
+- forecasts: `/forecasts/<slug>/<timestamp>/` and `/forecasts/<slug>/latest/`
+- root landing page: links to separate race and forecast indexes
 
 For hosted runs, the workflow also reuses the same DuckDB lookup cache across Actions runs:
 

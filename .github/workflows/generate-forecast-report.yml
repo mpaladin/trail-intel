@@ -1,0 +1,390 @@
+name: Generate Forecast Report
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      route_name:
+        description: Forecast title
+        required: true
+        type: string
+      gpx_url:
+        description: Direct GPX or ZIP URL
+        required: true
+        type: string
+      start_date:
+        description: Local start date (YYYY-MM-DD)
+        required: true
+        type: string
+      start_time:
+        description: Local start time (HH:MM or HH:MM:SS)
+        required: true
+        type: string
+      timezone_name:
+        description: IANA timezone name
+        required: true
+        default: Europe/Rome
+        type: string
+      duration:
+        description: Ride duration (HH:MM or HH:MM:SS)
+        required: true
+        default: "03:30"
+        type: string
+      notes:
+        description: Optional notes for this run
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  prepare:
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.issue.title, '[forecast]') || contains(join(github.event.issue.labels.*.name, ','), 'forecast-request') }}
+    runs-on: ubuntu-latest
+    outputs:
+      authorized: ${{ steps.auth.outputs.authorized }}
+      request_json: ${{ steps.request.outputs.request_json }}
+      route_slug: ${{ steps.request.outputs.route_slug }}
+      route_name: ${{ steps.request.outputs.route_name }}
+      request_error: ${{ steps.request.outputs.request_error }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - id: auth
+        env:
+          REQUESTER: ${{ github.actor }}
+          ALLOWED_REQUESTERS: ${{ vars.ALLOWED_REQUESTERS }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          python - <<'PY'
+          import os
+
+          requester = os.environ["REQUESTER"].strip()
+          allowed_raw = os.getenv("ALLOWED_REQUESTERS", "").strip()
+          allowed = {item.strip() for item in allowed_raw.split(",") if item.strip()}
+          if not allowed:
+              allowed = {os.getenv("REPO_OWNER", "").strip()}
+          authorized = requester in allowed
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"authorized={'true' if authorized else 'false'}\n")
+          PY
+
+      - id: request
+        if: steps.auth.outputs.authorized == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          INPUT_ROUTE_NAME: ${{ inputs.route_name }}
+          INPUT_GPX_URL: ${{ inputs.gpx_url }}
+          INPUT_START_DATE: ${{ inputs.start_date }}
+          INPUT_START_TIME: ${{ inputs.start_time }}
+          INPUT_TIMEZONE: ${{ inputs.timezone_name }}
+          INPUT_DURATION: ${{ inputs.duration }}
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import json
+          import os
+
+          from trailintel.forecast.github_pipeline import (
+              ForecastRequest,
+              parse_issue_form,
+              parse_duration,
+              request_to_payload,
+              resolve_gpx_source_url,
+              _validate_date,
+              _validate_time,
+              _validate_timezone,
+          )
+
+          error = ""
+          payload = {}
+          try:
+              if os.environ["EVENT_NAME"] == "issues":
+                  issue_body = os.getenv("ISSUE_BODY", "")
+                  request = parse_issue_form(issue_body)
+                  source_url = resolve_gpx_source_url(request, issue_body)
+              else:
+                  request = ForecastRequest(
+                      route_name=os.getenv("INPUT_ROUTE_NAME", "").strip(),
+                      gpx_url=os.getenv("INPUT_GPX_URL", "").strip(),
+                      start_date=_validate_date(os.getenv("INPUT_START_DATE", "").strip()),
+                      start_time=_validate_time(os.getenv("INPUT_START_TIME", "").strip()),
+                      timezone_name=_validate_timezone(os.getenv("INPUT_TIMEZONE", "").strip()),
+                      duration=os.getenv("INPUT_DURATION", "").strip(),
+                      notes=os.getenv("INPUT_NOTES", "").strip(),
+                  )
+                  parse_duration(request.duration)
+                  if not request.route_name:
+                      raise ValueError("Route name is required.")
+                  if not request.gpx_url:
+                      raise ValueError("workflow_dispatch requires a GPX URL.")
+                  source_url = request.gpx_url
+              payload = request_to_payload(request, source_url=source_url)
+          except Exception as exc:
+              error = str(exc)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write("request_json<<EOF\n")
+              handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+              handle.write("EOF\n")
+              handle.write(f"route_slug={payload.get('route_slug', '')}\n")
+              handle.write(f"route_name={payload.get('route_name', '')}\n")
+              handle.write(f"request_error={error}\n")
+          PY
+
+  deny_request:
+    if: ${{ needs.prepare.outputs.authorized == 'false' && github.event_name == 'issues' }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "This repository accepts forecast requests only from the allowlisted GitHub accounts in `ALLOWED_REQUESTERS`.",
+            });
+
+  invalid_request:
+    if: ${{ needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error != '' }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Comment invalid request on issue
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v8
+        env:
+          REQUEST_ERROR: ${{ needs.prepare.outputs.request_error }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Forecast request is invalid: ${process.env.REQUEST_ERROR}`,
+            });
+      - name: Fail invalid request
+        run: |
+          echo "${{ needs.prepare.outputs.request_error }}" >&2
+          exit 1
+
+  run_report:
+    if: ${{ needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error == '' }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      REQUEST_JSON: ${{ needs.prepare.outputs.request_json }}
+      PAGES_REPO: ${{ vars.PAGES_REPO }}
+      PAGES_BRANCH: ${{ vars.PAGES_BRANCH }}
+      PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
+      GITHUB_TOKEN: ${{ github.token }}
+    outputs:
+      publish_json: ${{ steps.publish.outputs.publish_json }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - id: download_source
+        name: Download GPX source
+        run: |
+          mkdir -p dist/input
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from trailintel.forecast.github_pipeline import download_gpx_source
+
+          payload = json.loads(os.environ["REQUEST_JSON"])
+          gpx_path = download_gpx_source(
+              source_url=str(payload["source_url"]),
+              output_dir=Path("dist/input"),
+              github_token=os.getenv("GITHUB_TOKEN") or None,
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"gpx_path={gpx_path.as_posix()}\n")
+          PY
+
+      - name: Build static forecast bundle
+        run: |
+          mkdir -p dist/site
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from trailintel.forecast.bundle import generate_forecast_assets
+
+          payload = json.loads(os.environ["REQUEST_JSON"])
+          generate_forecast_assets(
+              gpx_path=Path(os.environ["GPX_PATH"]),
+              start=f"{payload['start_date']}T{payload['start_time']}",
+              duration=str(payload["duration"]),
+              output_path=Path("dist/site/forecast.png"),
+              site_dir=Path("dist/site"),
+              title=str(payload["route_name"]),
+              timezone_name=str(payload["timezone_name"]),
+          )
+          PY
+        env:
+          GPX_PATH: ${{ steps.download_source.outputs.gpx_path }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: forecast-report-${{ needs.prepare.outputs.route_slug }}
+          path: dist/site
+
+      - name: Validate publish configuration
+        env:
+          PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
+        run: |
+          if [ -z "$PAGES_REPO" ]; then
+            echo "Missing repo variable PAGES_REPO (owner/repo)." >&2
+            exit 1
+          fi
+          if [ -z "$PAGES_REPO_TOKEN" ]; then
+            echo "Missing secret PAGES_REPO_TOKEN." >&2
+            exit 1
+          fi
+
+      - name: Clone public Pages repository
+        env:
+          PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
+        run: |
+          branch="${PAGES_BRANCH:-main}"
+          git clone --depth 1 --branch "$branch" "https://x-access-token:${PAGES_REPO_TOKEN}@github.com/${PAGES_REPO}.git" pages-repo
+
+      - id: derive_base_url
+        run: |
+          python - <<'PY'
+          import os
+
+          repo = os.getenv("PAGES_REPO", "").strip()
+          explicit = os.getenv("PAGES_BASE_URL", "").strip()
+          base = explicit
+          if not base and "/" in repo:
+              owner, name = repo.split("/", 1)
+              base = f"https://{owner}.github.io/{name}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"base_url={base}\n")
+          PY
+
+      - id: publish
+        env:
+          BASE_URL: ${{ steps.derive_base_url.outputs.base_url }}
+        run: |
+          python - <<'PY'
+          from dataclasses import asdict
+          from datetime import UTC, datetime
+          import json
+          import os
+          from pathlib import Path
+
+          from trailintel.forecast.github_pipeline import payload_to_request, publish_forecast_bundle
+
+          payload = json.loads(os.environ["REQUEST_JSON"])
+          request = payload_to_request(payload)
+          result = publish_forecast_bundle(
+              source_dir=Path("dist/site"),
+              pages_root=Path("pages-repo"),
+              request=request,
+              published_at=datetime.now(UTC),
+              base_url=os.getenv("BASE_URL") or None,
+          )
+          payload_out = asdict(result)
+          Path("dist/publish.json").write_text(
+              json.dumps(payload_out, indent=2, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write("publish_json<<EOF\n")
+              handle.write(json.dumps(payload_out, ensure_ascii=False) + "\n")
+              handle.write("EOF\n")
+          PY
+
+      - name: Commit and push published forecast
+        run: |
+          branch="${PAGES_BRANCH:-main}"
+          cd pages-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No Pages changes to commit."
+            exit 0
+          fi
+          git commit -m "Publish forecast: ${{ needs.prepare.outputs.route_name }}"
+          git push origin "$branch"
+
+      - name: Comment success on issue
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v8
+        env:
+          PUBLISH_JSON: ${{ steps.publish.outputs.publish_json }}
+        with:
+          script: |
+            const publish = JSON.parse(process.env.PUBLISH_JSON);
+            const body = [
+              "Forecast published successfully.",
+              "",
+              `- Latest report: ${publish.latest_url}`,
+              `- This run: ${publish.report_url}`,
+              `- PNG: ${publish.png_url}`,
+              `- GPX: ${publish.gpx_url}`,
+              `- JSON: ${publish.json_url}`,
+              `- Workflow artifacts: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: "closed",
+            });
+
+  comment_failure:
+    if: ${{ always() && needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error == '' && needs.run_report.result == 'failure' && github.event_name == 'issues' }}
+    needs: [prepare, run_report]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Forecast generation failed. Check the workflow logs for run ${context.runId}: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
