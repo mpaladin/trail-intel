@@ -593,6 +593,16 @@ def _sorted_section_entries(
     return entries
 
 
+def _section_relative_path(path: object, *, section: str) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return "#"
+    prefix = f"{section}/"
+    if text.startswith(prefix):
+        return text[len(prefix):]
+    return text
+
+
 def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Trail Race Reports") -> str:
     cards: list[str] = []
     for entry in entries:
@@ -606,9 +616,18 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
         participants = int(entry.get("participants_count", 0) or 0)
         qualified = int(entry.get("qualified_count", 0) or 0)
         strategy = html.escape(str(entry.get("strategy") or "participant-first"))
-        report_path = html.escape(str(entry.get("report_path") or "#"), quote=True)
-        csv_path = html.escape(str(entry.get("csv_path") or "#"), quote=True)
-        json_path = html.escape(str(entry.get("json_path") or "#"), quote=True)
+        report_path = html.escape(
+            _section_relative_path(entry.get("report_path"), section=REPORTS_SECTION_DIR),
+            quote=True,
+        )
+        csv_path = html.escape(
+            _section_relative_path(entry.get("csv_path"), section=REPORTS_SECTION_DIR),
+            quote=True,
+        )
+        json_path = html.escape(
+            _section_relative_path(entry.get("json_path"), section=REPORTS_SECTION_DIR),
+            quote=True,
+        )
         cards.append(
             f"""
             <article class="report-card">
@@ -695,10 +714,22 @@ def render_forecast_index(
             if published_at is not None
             else "Unknown time"
         )
-        report_path = html.escape(str(entry.get("report_path") or "#"), quote=True)
-        png_path = html.escape(str(entry.get("png_path") or "#"), quote=True)
-        gpx_path = html.escape(str(entry.get("gpx_path") or "#"), quote=True)
-        json_path = html.escape(str(entry.get("json_path") or "#"), quote=True)
+        report_path = html.escape(
+            _section_relative_path(entry.get("report_path"), section=FORECASTS_SECTION_DIR),
+            quote=True,
+        )
+        png_path = html.escape(
+            _section_relative_path(entry.get("png_path"), section=FORECASTS_SECTION_DIR),
+            quote=True,
+        )
+        gpx_path = html.escape(
+            _section_relative_path(entry.get("gpx_path"), section=FORECASTS_SECTION_DIR),
+            quote=True,
+        )
+        json_path = html.escape(
+            _section_relative_path(entry.get("json_path"), section=FORECASTS_SECTION_DIR),
+            quote=True,
+        )
         start_time = html.escape(str(entry.get("start_time") or ""))
         duration = html.escape(str(entry.get("duration") or ""))
         distance_km = float(entry.get("route_distance_km", 0.0) or 0.0)

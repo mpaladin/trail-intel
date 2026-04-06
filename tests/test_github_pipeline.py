@@ -138,7 +138,8 @@ Run this one first.
             reports_index = Path(f"{tmp}/pages/reports/index.html").read_text(encoding="utf-8")
             root_index = Path(f"{tmp}/pages/index.html").read_text(encoding="utf-8")
             self.assertIn("Trail du Test 2026", reports_index)
-            self.assertIn("reports/trail-du-test-2026-42-km/20260404-123456/index.html", reports_index)
+            self.assertIn("trail-du-test-2026-42-km/20260404-123456/index.html", reports_index)
+            self.assertNotIn("reports/trail-du-test-2026-42-km/20260404-123456/index.html", reports_index)
             self.assertIn("reports/index.html", root_index)
             self.assertIn("forecasts/index.html", root_index)
 
