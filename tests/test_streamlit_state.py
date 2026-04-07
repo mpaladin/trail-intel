@@ -279,7 +279,6 @@ class StreamlitStateTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_cookie=None,
-            betrail_cookie=None,
             cache_store=None,
             use_cache=False,
             force_refresh_cache=False,

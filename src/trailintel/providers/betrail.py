@@ -34,11 +34,9 @@ class BetrailClient:
     BASE_URL = "https://www.betrail.run"
     PAGE_SIZE = 25
 
-    def __init__(self, timeout: int = 15, cookie: str | None = None) -> None:
+    def __init__(self, timeout: int = 15) -> None:
         self.timeout = timeout
         self.session = requests.Session()
-        self._cookie = cookie
-        self.last_lookup_used_cookie_fallback = False
         self.session.headers.update(
             {
                 "Accept": "application/json, text/plain, */*",
@@ -71,16 +69,10 @@ class BetrailClient:
             return True
         return False
 
-    def _request_headers(self, *, cookie: str | None) -> dict[str, str]:
-        headers = dict(self.session.headers)
-        if cookie:
-            headers["Cookie"] = cookie
-        return headers
-
-    def _fetch_page(self, offset: int, *, cookie: str | None) -> list[dict[str, Any]]:
+    def _fetch_page(self, offset: int) -> list[dict[str, Any]]:
         response = self.session.get(
             f"{self.BASE_URL}/api/score/full/level/{offset}/scratch/ALL/ALL",
-            headers=self._request_headers(cookie=cookie),
+            headers=dict(self.session.headers),
             timeout=self.timeout,
         )
 
@@ -140,12 +132,12 @@ class BetrailClient:
             raw=item,
         )
 
-    def _fetch_catalog_above_threshold(self, *, threshold: float, cookie: str | None) -> list[BetrailCatalogEntry]:
+    def _fetch_catalog_above_threshold(self, *, threshold: float) -> list[BetrailCatalogEntry]:
         deduped: dict[str, BetrailCatalogEntry] = {}
         offset = 0
 
         for _ in range(500):
-            rows = self._fetch_page(offset, cookie=cookie)
+            rows = self._fetch_page(offset)
             if not rows:
                 break
 
@@ -171,15 +163,4 @@ class BetrailClient:
         return entries
 
     def fetch_catalog_above_threshold(self, threshold: float) -> list[BetrailCatalogEntry]:
-        self.last_lookup_used_cookie_fallback = False
-        try:
-            return self._fetch_catalog_above_threshold(threshold=threshold, cookie=None)
-        except BetrailLookupError as exc:
-            if not self._cookie:
-                raise
-            try:
-                entries = self._fetch_catalog_above_threshold(threshold=threshold, cookie=self._cookie)
-            except BetrailLookupError as fallback_exc:
-                raise BetrailLookupError(f"{exc}; cookie retry failed: {fallback_exc}") from fallback_exc
-            self.last_lookup_used_cookie_fallback = True
-            return entries
+        return self._fetch_catalog_above_threshold(threshold=threshold)

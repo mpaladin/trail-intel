@@ -133,13 +133,12 @@ def seed_betrail_repo(
     fill_utmb: bool,
     fill_itra: bool,
     itra_cookie: str | None,
-    betrail_cookie: str | None,
 ) -> tuple[int, dict[str, object]]:
     repo = AthleteScoreRepo(repo_path)
     repo.load()
     run_id = repo.generate_run_id()
 
-    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_client = BetrailClient(timeout=timeout)
     utmb_client = UtmbClient(timeout=timeout)
     itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
 
@@ -417,7 +416,6 @@ def build_parser() -> argparse.ArgumentParser:
     seed_betrail.add_argument("--fill-utmb", action="store_true")
     seed_betrail.add_argument("--fill-itra", action="store_true")
     seed_betrail.add_argument("--itra-cookie")
-    seed_betrail.add_argument("--betrail-cookie")
 
     import_duckdb = subparsers.add_parser(
         "import-duckdb",
@@ -456,7 +454,6 @@ def main(argv: list[str] | None = None) -> int:
                 fill_utmb=bool(args.fill_utmb),
                 fill_itra=bool(args.fill_itra),
                 itra_cookie=args.itra_cookie or os.getenv("ITRA_COOKIE"),
-                betrail_cookie=args.betrail_cookie or os.getenv("BETRAIL_COOKIE"),
             )
         elif args.command == "import-duckdb":
             imported_count, summary = import_duckdb_cache(

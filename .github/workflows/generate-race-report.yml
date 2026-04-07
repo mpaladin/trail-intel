@@ -159,7 +159,6 @@ jobs:
       PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
       SCORE_REPO: ${{ vars.SCORE_REPO }}
       SCORE_REPO_BRANCH: ${{ vars.SCORE_REPO_BRANCH }}
-      BETRAIL_COOKIE: ${{ secrets.BETRAIL_COOKIE }}
       SCORE_REPO_TOKEN: ${{ secrets.SCORE_REPO_TOKEN }}
       TRAILINTEL_CACHE_DB: ${{ github.workspace }}/.workflow-cache/trailintel_cache.duckdb
       TRAILINTEL_SCORE_REPO: ${{ github.workspace }}/score-repo

@@ -75,30 +75,10 @@ class BetrailProviderTests(unittest.TestCase):
         self.assertEqual(mock_fetch_page.call_count, 2)
 
     @patch("trailintel.providers.betrail.BetrailClient._fetch_page")
-    def test_cookie_fallback_runs_after_public_failure(self, mock_fetch_page) -> None:
-        def _fake_fetch(offset: int, *, cookie: str | None):
-            if cookie is None:
-                raise BetrailLookupError("Betrail request blocked by Cloudflare.")
-            if offset == 0:
-                return [
-                    _betrail_row(
-                        level=7123,
-                        display_title=None,
-                        title=None,
-                        firstname="Bob",
-                        lastname="Runner",
-                        alias="bob.runner",
-                    )
-                ]
-            return []
+    def test_catalog_fetch_propagates_public_failure(self, mock_fetch_page) -> None:
+        mock_fetch_page.side_effect = BetrailLookupError("Betrail request blocked by Cloudflare.")
 
-        mock_fetch_page.side_effect = _fake_fetch
+        client = BetrailClient(timeout=5)
 
-        client = BetrailClient(timeout=5, cookie="session=ok")
-        client.PAGE_SIZE = 1
-        entries = client.fetch_catalog_above_threshold(68.0)
-
-        self.assertEqual(len(entries), 1)
-        self.assertTrue(client.last_lookup_used_cookie_fallback)
-        self.assertEqual(entries[0].name, "Bob Runner")
-        self.assertEqual(entries[0].betrail_score, 71.23)
+        with self.assertRaises(BetrailLookupError):
+            client.fetch_catalog_above_threshold(68.0)
