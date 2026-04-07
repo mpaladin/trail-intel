@@ -66,7 +66,8 @@ def forecast(
                 (
                     "Wettest segment: "
                     f"{summary.wettest_time.isoformat()} "
-                    f"({summary.wettest_probability_pct:.0f}% chance)"
+                    f"({summary.wettest_precipitation_mm:.1f} mm, "
+                    f"{summary.wettest_probability_pct:.0f}% chance)"
                 ),
                 f"Saved image: {result.image_path}",
                 (

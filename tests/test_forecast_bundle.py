@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -39,9 +40,20 @@ class ForecastBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
+            captured_render: dict[str, str | None] = {}
+
+            def render_without_map(report, output_path, *, title=None):
+                captured_render["title"] = title
+                return original_render_report(
+                    report,
+                    output_path,
+                    title=title,
+                    use_real_map=False,
+                )
+
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                lambda report, output_path: original_render_report(report, output_path, use_real_map=False),
+                render_without_map,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -61,11 +73,14 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertTrue((site_dir / "route.gpx").exists())
             self.assertTrue((site_dir / "snapshot.json").exists())
             self.assertTrue((site_dir / "report-meta.json").exists())
+            self.assertEqual(captured_render.get("title"), "Sample Loop Forecast")
+            self.assertIsNotNone(result.snapshot)
 
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Sample Loop Forecast", html)
             self.assertIn("Route Forecast", html)
             self.assertIn("Forecast Overview", html)
+            self.assertIn("Key Moments", html)
             self.assertIn("Route Timeline", html)
             self.assertIn('href="forecast.png"', html)
             self.assertIn('href="route.gpx"', html)
@@ -75,9 +90,14 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Mar 28, 08:00", html)
             self.assertNotIn("2026-03-28T08:00:00+00:00", html)
 
-            snapshot = (site_dir / "snapshot.json").read_text(encoding="utf-8")
-            self.assertIn('"report_kind": "forecast"', snapshot)
-            self.assertIn('"title": "Sample Loop Forecast"', snapshot)
+            snapshot = json.loads((site_dir / "snapshot.json").read_text(encoding="utf-8"))
+            self.assertEqual(snapshot["report_kind"], "forecast")
+            self.assertEqual(snapshot["title"], "Sample Loop Forecast")
+            self.assertEqual(snapshot["summary"]["wettest_precipitation_mm"], 0.4)
+            self.assertEqual(
+                [item["kind"] for item in snapshot["key_moments"]],
+                ["start", "coldest", "windiest", "wettest", "finish"],
+            )
 
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
         from trailintel.forecast.models import (

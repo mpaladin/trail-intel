@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 from typing import TYPE_CHECKING
 
+from trailintel.forecast.engine import select_wettest_sample
 from trailintel.github_pipeline import normalize_slug_text
 from trailintel.site import (
     FORECAST_REPORT_KIND,
@@ -70,6 +71,40 @@ def _build_sample_rows(report: ForecastReport) -> list[dict[str, object]]:
     return rows
 
 
+def _build_key_moments(report: ForecastReport) -> list[dict[str, object]]:
+    if not report.samples:
+        return []
+
+    coldest = min(
+        report.samples,
+        key=lambda sample: (sample.temperature_c, sample.sample.timestamp),
+    )
+    windiest = min(
+        report.samples,
+        key=lambda sample: (-sample.wind_kph, sample.sample.timestamp),
+    )
+    key_samples = [
+        ("start", "Start", report.samples[0]),
+        ("coldest", "Coldest", coldest),
+        ("windiest", "Windiest", windiest),
+        ("wettest", "Wettest", select_wettest_sample(report.samples)),
+        ("finish", "Finish", report.samples[-1]),
+    ]
+    return [
+        {
+            "kind": kind,
+            "label": label,
+            "timestamp": sample.sample.timestamp.isoformat(),
+            "distance_km": round(sample.sample.distance_m / 1000.0, 2),
+            "temperature_c": round(sample.temperature_c, 1),
+            "wind_kph": round(sample.wind_kph, 1),
+            "precipitation_mm": round(sample.precipitation_mm, 2),
+            "precipitation_probability": round(sample.precipitation_probability, 1),
+        }
+        for kind, label, sample in key_samples
+    ]
+
+
 def build_forecast_snapshot(
     *,
     title: str,
@@ -96,8 +131,10 @@ def build_forecast_snapshot(
             "wind_max_kph": round(summary.wind_max_kph, 1),
             "precipitation_total_mm": round(summary.precipitation_total_mm, 1),
             "wettest_time": summary.wettest_time.isoformat(),
+            "wettest_precipitation_mm": round(summary.wettest_precipitation_mm, 2),
             "wettest_probability_pct": round(summary.wettest_probability_pct, 1),
         },
+        "key_moments": _build_key_moments(report),
         "sample_rows": _build_sample_rows(report),
     }
 
@@ -123,6 +160,7 @@ def build_forecast_metadata(snapshot: dict[str, object]) -> dict[str, object]:
         "wind_max_kph": summary.get("wind_max_kph"),
         "precipitation_total_mm": summary.get("precipitation_total_mm"),
         "wettest_time": summary.get("wettest_time"),
+        "wettest_precipitation_mm": summary.get("wettest_precipitation_mm"),
         "wettest_probability_pct": summary.get("wettest_probability_pct"),
     }
 
@@ -168,6 +206,30 @@ def _sample_rows_table(rows: list[dict[str, object]]) -> str:
     )
 
 
+def _key_moments_grid(rows: list[dict[str, object]]) -> str:
+    if not rows:
+        return '<div class="empty-state">No forecast highlights available.</div>'
+
+    items: list[tuple[str, str, str]] = []
+    for row in rows:
+        label = str(row.get("label") or row.get("kind") or "Moment")
+        timestamp = _format_compact_timestamp(
+            row.get("timestamp"),
+            default=str(row.get("timestamp", "")),
+        )
+        details = " • ".join(
+            [
+                f"{float(row.get('distance_km', 0.0) or 0.0):.2f} km",
+                f"{float(row.get('temperature_c', 0.0) or 0.0):.1f}C",
+                f"{float(row.get('wind_kph', 0.0) or 0.0):.1f} km/h wind",
+                f"{float(row.get('precipitation_mm', 0.0) or 0.0):.2f} mm rain",
+                f"{float(row.get('precipitation_probability', 0.0) or 0.0):.0f}% chance",
+            ]
+        )
+        items.append((label, timestamp, details))
+    return f'<div class="metric-grid">{_render_metric_cards(items)}</div>'
+
+
 def render_forecast_html(
     snapshot: dict[str, object],
     *,
@@ -179,6 +241,9 @@ def render_forecast_html(
     summary = snapshot.get("summary", {})
     if not isinstance(summary, dict):
         summary = {}
+    key_moments = snapshot.get("key_moments", [])
+    if not isinstance(key_moments, list):
+        key_moments = []
     sample_rows = snapshot.get("sample_rows", [])
     if not isinstance(sample_rows, list):
         sample_rows = []
@@ -221,7 +286,10 @@ def render_forecast_html(
             (
                 "Wettest segment",
                 wettest_label,
-                f"{float(summary.get('wettest_probability_pct', 0.0) or 0.0):.0f}% rain probability",
+                (
+                    f"{float(summary.get('wettest_precipitation_mm', 0.0) or 0.0):.2f} mm rain"
+                    f" • {float(summary.get('wettest_probability_pct', 0.0) or 0.0):.0f}% probability"
+                ),
             ),
         ]
     )
@@ -251,7 +319,7 @@ def render_forecast_html(
       <div class="metric-grid">{cards}</div>
     </section>
 
-    <section class="section-stack">
+      <section class="section-stack">
       <section class="panel">
         <div class="panel-head">
           <h2>Forecast Overview</h2>
@@ -259,6 +327,15 @@ def render_forecast_html(
         </div>
         <p class="section-caption">The full rendered route forecast chart preserved as a static image for quick sharing.</p>
         <div class="chart-frame"><img src="{png_href}" alt="Forecast chart for {html.escape(title)}"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Key Moments</h2>
+          <span class="pill">Fast route scan</span>
+        </div>
+        <p class="section-caption">Five fixed checkpoints pulled from the aligned route samples so the main swings in temperature, wind, and rain are easy to scan.</p>
+        {_key_moments_grid(key_moments)}
       </section>
 
       <section class="panel">

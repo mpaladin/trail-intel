@@ -30,7 +30,6 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - Top-N report in terminal
 - Optional export to CSV, JSON, or a static HTML report bundle
 - Optional manual ITRA overrides file when live ITRA is blocked
-- Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
 - Optional Git-backed athlete score repo cache (`--score-repo` or `TRAILINTEL_SCORE_REPO`)
 - Separate `trailintel-forecast` CLI for GPX weather reports
 - Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
@@ -232,25 +231,6 @@ When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
 - stores one JSON file per athlete under `athletes/<shard>/<athlete_id>.json`
 - writes run summaries under `runs/<year>/`
 
-## Optional ITRA cookie
-
-If you have a valid ITRA session and want the app to try authenticated requests:
-
-```bash
-export ITRA_COOKIE='cookie1=value1; cookie2=value2'
-trailintel --participants-file ./participants.csv --strategy participant-first
-```
-
-or:
-
-```bash
-trailintel --participants-file ./participants.csv --itra-cookie 'cookie1=value1; cookie2=value2'
-```
-
-If cookie-authenticated ITRA lookup fails (for example stale/invalid cookie or
-CloudFront blocking), the app now retries the lookup anonymously for the same
-run and keeps your persisted cookie unchanged.
-
 ## Notes
 
 - UTMB endpoint is public and currently accessible.
@@ -260,8 +240,7 @@ run and keeps your persisted cookie unchanged.
   in 25-runner batches.
 - When live provider lookup fails but a stale score-repo snapshot exists, that
   snapshot is reused and noted in the report.
-- If repeated ITRA failures continue, refresh/replace your cookie or clear it
-  and rely on anonymous ITRA mode plus overrides.
+- If repeated ITRA failures continue, rely on anonymous ITRA mode plus overrides.
 
 ## GitHub Actions + Pages
 

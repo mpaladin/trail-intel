@@ -34,7 +34,6 @@ class ItraResilienceTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_overrides=None,
-            itra_cookie=None,
         )
 
         self.assertIn("ITRA unavailable: temporary failure", records[0].notes)
@@ -65,7 +64,6 @@ class ItraResilienceTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_overrides=None,
-            itra_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 8)
@@ -73,35 +71,6 @@ class ItraResilienceTests(unittest.TestCase):
             "stopped after 8 consecutive failures",
             records[-1].notes,
         )
-
-    @patch("trailintel.cli.BetrailClient")
-    @patch("trailintel.cli.ItraClient")
-    @patch("trailintel.cli.UtmbClient")
-    def test_note_added_when_cookie_fallback_is_used(
-        self,
-        mock_utmb_client,
-        mock_itra_client,
-        mock_betrail_client,
-    ) -> None:
-        mock_utmb = mock_utmb_client.return_value
-        mock_utmb.search.return_value = None
-        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
-
-        mock_itra = mock_itra_client.return_value
-        mock_itra.search.return_value = None
-        mock_itra.last_lookup_used_cookie_fallback = True
-
-        records = _enrich_records(
-            ["Alice Martin"],
-            min_match_score=0.6,
-            score_threshold=700.0,
-            timeout=15,
-            skip_itra=False,
-            itra_overrides=None,
-            itra_cookie="session=broken",
-        )
-
-        self.assertIn("ITRA cookie rejected, retried anonymously", records[0].notes)
 
     @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
@@ -132,7 +101,6 @@ class ItraResilienceTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_overrides=None,
-            itra_cookie=None,
         )
 
         self.assertEqual(mock_itra_client.return_value.search.call_count, 0)
@@ -161,7 +129,6 @@ class ItraResilienceTests(unittest.TestCase):
 
         mock_itra = mock_itra_client.return_value
         mock_itra.search.return_value = None
-        mock_itra.last_lookup_used_cookie_fallback = False
         mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         records = _enrich_records(
@@ -171,7 +138,6 @@ class ItraResilienceTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_overrides=None,
-            itra_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 1)

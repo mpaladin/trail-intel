@@ -28,6 +28,11 @@ def _default_title(gpx_path: str | Path) -> str:
     return cleaned or "Route Forecast"
 
 
+def resolve_forecast_title(gpx_path: str | Path, title: str | None) -> str:
+    explicit = (title or "").strip()
+    return explicit or _default_title(gpx_path)
+
+
 def generate_forecast_assets(
     *,
     gpx_path: str | Path,
@@ -42,6 +47,7 @@ def generate_forecast_assets(
     now: datetime | None = None,
     generated_at: datetime | None = None,
 ) -> ForecastBundleResult:
+    resolved_title = resolve_forecast_title(gpx_path, title)
     report = build_report(
         gpx_path=gpx_path,
         start=start,
@@ -51,14 +57,14 @@ def generate_forecast_assets(
         http_client=http_client,
         now=now,
     )
-    image_path = render_report(report, output_path)
+    image_path = render_report(report, output_path, title=resolved_title)
     summary = summarize_report(report)
 
     exported_site_dir: Path | None = None
     snapshot: dict[str, object] | None = None
     if site_dir is not None:
         snapshot = build_forecast_snapshot(
-            title=(title or "").strip() or _default_title(gpx_path),
+            title=resolved_title,
             report=report,
             summary=summary,
             generated_at=generated_at or datetime.now(UTC),

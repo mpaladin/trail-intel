@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import sys
 from typing import Iterable
@@ -283,7 +282,6 @@ def _enrich_records(
     timeout: int,
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
-    itra_cookie: str | None,
     score_repo: AthleteScoreRepo | None = None,
     score_repo_read_only: bool = False,
     score_repo_run_id: str | None = None,
@@ -292,7 +290,7 @@ def _enrich_records(
 ) -> list[AthleteRecord]:
     names_list = list(names)
     utmb_client = UtmbClient(timeout=timeout)
-    itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
+    itra_client = ItraClient(timeout=timeout)
     betrail_client = BetrailClient(timeout=timeout)
 
     betrail_lookup_threshold = _betrail_threshold(score_threshold)
@@ -483,8 +481,6 @@ def _enrich_records(
         else:
             try:
                 itra_match = itra_client.search(name)
-                if itra_client.last_lookup_used_cookie_fallback:
-                    record.notes = _append_note(record.notes, "ITRA cookie rejected, retried anonymously")
                 if itra_match:
                     record.itra_score = itra_match.itra_score
                     record.itra_match_name = itra_match.matched_name
@@ -682,7 +678,6 @@ def _enrich_records_from_catalog(
     timeout: int,
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
-    itra_cookie: str | None,
     score_threshold: float,
     utmb_catalog_max_pages: int,
     catalog_min_match_score: float,
@@ -695,7 +690,7 @@ def _enrich_records_from_catalog(
     names_list = list(names)
     overrides = itra_overrides or {}
     utmb_client = UtmbClient(timeout=timeout)
-    itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
+    itra_client = ItraClient(timeout=timeout)
     betrail_client = BetrailClient(timeout=timeout)
 
     betrail_lookup_threshold = _betrail_threshold(score_threshold)
@@ -1081,13 +1076,6 @@ def build_parser() -> argparse.ArgumentParser:
         help='Add a participant by name (repeatable), e.g. --participant "Kilian Jornet".',
     )
     parser.add_argument("--itra-overrides", help="CSV/JSON file with manual name->ITRA score mappings.")
-    parser.add_argument(
-        "--itra-cookie",
-        help=(
-            "Optional raw Cookie header value for authenticated ITRA requests. "
-            "Can also be provided via ITRA_COOKIE env var."
-        ),
-    )
     parser.add_argument("--skip-itra", action="store_true", help="Disable live ITRA lookups.")
     parser.add_argument(
         "--score-repo",
@@ -1160,7 +1148,6 @@ def main(argv: list[str] | None = None) -> int:
         print("No participants found from the provided inputs.", file=sys.stderr)
         return 2
 
-    itra_cookie = args.itra_cookie or os.getenv("ITRA_COOKIE")
     score_repo: AthleteScoreRepo | None = None
     score_repo_path = Path(args.score_repo).expanduser() if args.score_repo else default_score_repo_path()
     if score_repo_path is not None:
@@ -1185,7 +1172,6 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             skip_itra=args.skip_itra,
             itra_overrides=overrides,
-            itra_cookie=itra_cookie,
             score_threshold=args.score_threshold,
             utmb_catalog_max_pages=max(1, args.utmb_catalog_max_pages),
             catalog_min_match_score=max(0.0, min(1.0, args.catalog_min_match_score)),
@@ -1203,7 +1189,6 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             skip_itra=args.skip_itra,
             itra_overrides=overrides,
-            itra_cookie=itra_cookie,
             score_repo=score_repo,
             score_repo_read_only=args.score_repo_read_only,
             score_repo_run_id=score_repo_run_id,

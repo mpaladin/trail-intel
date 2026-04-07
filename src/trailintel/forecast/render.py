@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from datetime import datetime
 from pathlib import Path
+import textwrap
 
 import matplotlib
 
@@ -49,6 +50,7 @@ def render_report(
     report: ForecastReport,
     output_path: str | Path,
     *,
+    title: str | None = None,
     use_real_map: bool = True,
 ) -> Path:
     plt.rcParams.update(
@@ -89,7 +91,7 @@ def render_report(
     wind_panel = fig.add_subplot(grid[2, 1])
     elevation_panel = fig.add_subplot(grid[3, 1])
 
-    render_header(header_ax, report)
+    render_header(header_ax, report, title=title)
     render_temperature_panel(temperature_panel, report)
     render_precipitation_panel(precipitation_panel, report)
     render_wind_direction_panel(map_panel, report, use_real_map=use_real_map)
@@ -114,21 +116,33 @@ def render_report(
     return output
 
 
-def render_header(axis, report: ForecastReport) -> None:
+def render_header(axis, report: ForecastReport, *, title: str | None = None) -> None:
     axis.set_facecolor(HEADER)
     axis.set_xticks([])
     axis.set_yticks([])
     for spine in axis.spines.values():
         spine.set_visible(False)
+    title_lines = wrap_header_title(title)
     axis.text(
         0.5,
+        0.62,
+        "\n".join(title_lines),
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontsize=23 if len(title_lines) == 1 else 20,
+        fontweight="bold",
+        color="white",
+        linespacing=0.95,
+    )
+    axis.text(
         0.5,
+        0.20,
         format_header_datetime(report.start_time),
         transform=axis.transAxes,
         ha="center",
         va="center",
-        fontsize=16,
-        fontweight="bold",
+        fontsize=12,
         color="white",
     )
 
@@ -181,8 +195,9 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
         [sample.cloud_cover_pct for sample in report.samples],
         dtype=float,
     )
-    intensity = precipitation_intensity_scale(
-        np.array([sample.precipitation_mm for sample in report.samples], dtype=float)
+    precipitation = np.array(
+        [sample.precipitation_mm for sample in report.samples],
+        dtype=float,
     )
 
     plot_ax.fill_between(timestamps, 0, cloud_cover, color=CLOUD, alpha=0.22, zorder=1)
@@ -190,40 +205,53 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
     plot_ax.plot(timestamps, probability, color=PROBABILITY, linewidth=1.1, zorder=3)
     plot_ax.fill_between(timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2)
 
-    intensity_ax = plot_ax.twinx()
-    intensity_ax.fill_between(
+    precipitation_ax = plot_ax.twinx()
+    precipitation_ax.fill_between(
         timestamps,
         0,
-        intensity,
+        precipitation,
         color=INTENSITY,
         alpha=0.24,
         zorder=1,
     )
-    intensity_ax.plot(timestamps, intensity, color=INTENSITY, linewidth=1.15, zorder=4)
+    precipitation_ax.plot(
+        timestamps,
+        precipitation,
+        color=INTENSITY,
+        linewidth=1.15,
+        zorder=4,
+    )
 
     style_chart_axis(plot_ax, timestamps)
     plot_ax.set_ylim(0, 100)
-    plot_ax.set_yticks([0, 20, 40, 60, 80])
+    plot_ax.set_yticks([0, 20, 40, 60, 80, 100])
+    plot_ax.tick_params(axis="y", right=False, labelright=False)
+    plot_ax.spines["right"].set_visible(False)
 
-    intensity_ax.set_ylim(0, 100)
-    intensity_ax.set_yticks([10, 30, 50, 70, 90])
-    intensity_ax.set_yticklabels(
-        ["Very Light", "Light", "Moderate", "Heavy", "Very Heavy"],
-        color=MUTED,
-        fontsize=8,
+    precipitation_ax.set_ylim(0, precipitation_axis_ceiling(precipitation))
+    precipitation_ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
+    precipitation_ax.tick_params(
+        axis="y",
+        left=False,
+        labelleft=False,
+        right=True,
+        labelright=True,
+        colors=MUTED,
+        labelsize=8,
+        length=0,
+        pad=6,
     )
-    intensity_ax.tick_params(axis="y", length=0, colors=MUTED, pad=6)
-    intensity_ax.spines["right"].set_color(PANEL_EDGE)
-    intensity_ax.spines["top"].set_visible(False)
-    intensity_ax.spines["left"].set_visible(False)
-    intensity_ax.grid(False)
+    precipitation_ax.spines["right"].set_color(PANEL_EDGE)
+    precipitation_ax.spines["top"].set_visible(False)
+    precipitation_ax.spines["left"].set_visible(False)
+    precipitation_ax.grid(False)
 
     add_line_legend(
         axis,
         [
-            ("Probability (%)", PROBABILITY),
-            ("Intensity", INTENSITY),
+            ("Rain Chance (%)", PROBABILITY),
             ("Cloud Cover (%)", CLOUD),
+            ("Rain (mm)", INTENSITY),
         ],
     )
 
@@ -500,19 +528,23 @@ def choose_time_ticks(timestamps: list[datetime], max_ticks: int) -> list[dateti
     return [timestamps[index] for index in indices]
 
 
-def precipitation_intensity_scale(precipitation_mm: np.ndarray) -> np.ndarray:
-    thresholds = np.array([0.0, 0.1, 0.5, 1.5, 4.0, 10.0], dtype=float)
-    severity = np.array([0.0, 18.0, 35.0, 55.0, 78.0, 100.0], dtype=float)
-    clamped = np.clip(precipitation_mm, thresholds[0], thresholds[-1])
-    return np.interp(clamped, thresholds, severity)
-
-
 def padded_limits(values: np.ndarray, *, pad: float) -> tuple[float, float]:
     lower = math.floor(float(np.nanmin(values) - pad))
     upper = math.ceil(float(np.nanmax(values) + pad))
     if upper <= lower:
         upper = lower + 2
     return lower, upper
+
+
+def precipitation_axis_ceiling(precipitation_mm: np.ndarray) -> float:
+    if precipitation_mm.size == 0:
+        return 1.0
+    peak = float(np.nanmax(precipitation_mm))
+    if peak <= 0:
+        return 1.0
+    if peak <= 5:
+        return max(1.0, math.ceil(peak * 2) / 2)
+    return math.ceil(peak)
 
 
 def average_speed_kph(report: ForecastReport) -> float:
@@ -523,7 +555,23 @@ def average_speed_kph(report: ForecastReport) -> float:
 
 
 def format_header_datetime(value: datetime) -> str:
-    return value.strftime("%b %d, %Y at %H:%M")
+    zone = value.tzname() or "UTC"
+    return f"{value:%b %d, %Y at %H:%M} {zone}"
+
+
+def wrap_header_title(title: str | None) -> list[str]:
+    normalized = " ".join((title or "Route Forecast").split())
+    lines = textwrap.wrap(
+        normalized,
+        width=26,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    if not lines:
+        return ["Route Forecast"]
+    if len(lines) <= 2:
+        return lines
+    return [lines[0], textwrap.shorten(" ".join(lines[1:]), width=26, placeholder="...")]
 
 
 def draw_terrain_background(axis, report: ForecastReport) -> None:

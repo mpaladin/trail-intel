@@ -26,6 +26,7 @@ class ForecastSummary:
     wind_max_kph: float
     precipitation_total_mm: float
     wettest_time: datetime
+    wettest_precipitation_mm: float
     wettest_probability_pct: float
 
 
@@ -64,17 +65,13 @@ def build_report(
 
 
 def summarize_report(report: ForecastReport) -> ForecastSummary:
+    if not report.samples:
+        raise ValueError("Forecast report has no samples to summarize.")
+
     temperatures = [sample.temperature_c for sample in report.samples]
     winds = [sample.wind_kph for sample in report.samples]
     precipitation_total = integrate_precipitation(report.samples)
-    wettest_sample = max(
-        report.samples,
-        key=lambda sample: (
-            sample.precipitation_probability,
-            sample.precipitation_mm,
-            sample.sample.timestamp,
-        ),
-    )
+    wettest_sample = select_wettest_sample(report.samples)
 
     return ForecastSummary(
         temperature_min_c=min(temperatures),
@@ -82,7 +79,21 @@ def summarize_report(report: ForecastReport) -> ForecastSummary:
         wind_max_kph=max(winds),
         precipitation_total_mm=precipitation_total,
         wettest_time=wettest_sample.sample.timestamp,
+        wettest_precipitation_mm=wettest_sample.precipitation_mm,
         wettest_probability_pct=wettest_sample.precipitation_probability,
+    )
+
+
+def select_wettest_sample(samples: list[SampleForecast]) -> SampleForecast:
+    if not samples:
+        raise ValueError("Forecast sample list is empty.")
+    return min(
+        samples,
+        key=lambda sample: (
+            -sample.precipitation_mm,
+            -sample.precipitation_probability,
+            sample.sample.timestamp,
+        ),
     )
 
 
