@@ -20,7 +20,9 @@ def cli() -> None:
 
 @app.command("forecast")
 def forecast(
-    gpx_path: Path = typer.Argument(..., exists=True, readable=True, help="Input GPX file."),
+    gpx_path: Path = typer.Argument(
+        ..., exists=True, readable=True, help="Input GPX file."
+    ),
     start: str = typer.Option(..., "--start", help="Ride start as ISO8601."),
     duration: str = typer.Option(..., "--duration", help="Ride duration as HH:MM."),
     output: Path = typer.Option(..., "--output", help="PNG output path."),

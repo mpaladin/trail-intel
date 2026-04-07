@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import csv
 import html
 import json
 import math
-from pathlib import Path
 import re
 import shutil
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from trailintel.models import AthleteRecord
@@ -22,7 +22,9 @@ RACE_REPORT_KIND = "race"
 FORECAST_REPORT_KIND = "forecast"
 REPORTS_SECTION_DIR = "reports"
 FORECASTS_SECTION_DIR = "forecasts"
-HEADING_FONT_STACK = '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif'
+HEADING_FONT_STACK = (
+    '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif'
+)
 BODY_FONT_STACK = '"Avenir Next", "Segoe UI", sans-serif'
 
 _THEME_TOKENS: dict[str, dict[str, str]] = {
@@ -123,7 +125,7 @@ def _format_threshold_label(value: object) -> str:
         return "Not set"
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return str(value)
     if number.is_integer():
         return str(int(number))
@@ -668,12 +670,14 @@ def _render_document(
 </head>
 <body>
   <main class="page">
-    {_render_site_nav(
-        home_href=home_href,
-        reports_href=reports_href,
-        forecasts_href=forecasts_href,
-        active=active_nav,
-    )}
+    {
+        _render_site_nav(
+            home_href=home_href,
+            reports_href=reports_href,
+            forecasts_href=forecasts_href,
+            active=active_nav,
+        )
+    }
     {body_html}
   </main>
 </body>
@@ -721,7 +725,9 @@ def compute_no_result_names(records: list[AthleteRecord]) -> list[str]:
         name = record.input_name.strip()
         if not name:
             continue
-        status = match_presence.setdefault(name, {"utmb": False, "itra": False, "betrail": False})
+        status = match_presence.setdefault(
+            name, {"utmb": False, "itra": False, "betrail": False}
+        )
         status["utmb"] = status["utmb"] or _has_utmb_match(record)
         status["itra"] = status["itra"] or _has_itra_match(record)
         status["betrail"] = status["betrail"] or _has_betrail_match(record)
@@ -762,13 +768,23 @@ def aggregate_scores_by_input(
                 else max(bucket["betrail"], record.betrail_score)
             )
 
-    utmb_scores = [bucket["utmb"] for bucket in by_input.values() if bucket["utmb"] is not None]
-    itra_scores = [bucket["itra"] for bucket in by_input.values() if bucket["itra"] is not None]
-    betrail_scores = [bucket["betrail"] for bucket in by_input.values() if bucket["betrail"] is not None]
+    utmb_scores = [
+        bucket["utmb"] for bucket in by_input.values() if bucket["utmb"] is not None
+    ]
+    itra_scores = [
+        bucket["itra"] for bucket in by_input.values() if bucket["itra"] is not None
+    ]
+    betrail_scores = [
+        bucket["betrail"]
+        for bucket in by_input.values()
+        if bucket["betrail"] is not None
+    ]
     with_any = sum(
         1
         for bucket in by_input.values()
-        if bucket["utmb"] is not None or bucket["itra"] is not None or bucket["betrail"] is not None
+        if bucket["utmb"] is not None
+        or bucket["itra"] is not None
+        or bucket["betrail"] is not None
     )
     summary = {
         "participants": len(by_input),
@@ -780,7 +796,9 @@ def aggregate_scores_by_input(
     return utmb_scores, itra_scores, betrail_scores, summary
 
 
-def build_score_histogram(scores: list[float], *, bin_size: int = 50) -> list[dict[str, int | str]]:
+def build_score_histogram(
+    scores: list[float], *, bin_size: int = 50
+) -> list[dict[str, int | str]]:
     if not scores:
         return []
 
@@ -806,7 +824,9 @@ def build_score_histogram(scores: list[float], *, bin_size: int = 50) -> list[di
     return rows
 
 
-def records_to_rows(records: list[AthleteRecord], *, top: int) -> list[dict[str, object]]:
+def records_to_rows(
+    records: list[AthleteRecord], *, top: int
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for idx, record in enumerate(records[:top], start=1):
         rows.append(
@@ -847,7 +867,9 @@ def build_report_snapshot(
     ranked_all = sort_records(all_records, sort_by=sort_by)
     ranked_qualified = sort_records(qualified_records, sort_by=sort_by)
     no_result_names = compute_no_result_names(all_records)
-    utmb_scores, itra_scores, betrail_scores, score_summary = aggregate_scores_by_input(all_records)
+    utmb_scores, itra_scores, betrail_scores, score_summary = aggregate_scores_by_input(
+        all_records
+    )
     score_summary["participants"] = participants_count
     stamp = generated_at or datetime.now(UTC)
     return {
@@ -890,7 +912,9 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
         betrail_profile = str(row.get("Betrail Profile") or "").strip()
         utmb_link = _table_link(utmb_profile, "UTMB") if utmb_profile else ""
         itra_link = _table_link(itra_profile, "ITRA") if itra_profile else ""
-        betrail_link = _table_link(betrail_profile, "Betrail") if betrail_profile else ""
+        betrail_link = (
+            _table_link(betrail_profile, "Betrail") if betrail_profile else ""
+        )
         table_rows.append(
             "".join(
                 [
@@ -927,7 +951,9 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
 
 
 def _render_histogram(title: str, scores: list[float]) -> str:
-    histogram_rows = build_score_histogram([float(score) for score in scores if score is not None])
+    histogram_rows = build_score_histogram(
+        [float(score) for score in scores if score is not None]
+    )
     if not histogram_rows:
         return (
             f'<section class="chart-card"><h3>{html.escape(title)}</h3>'
@@ -947,7 +973,7 @@ def _render_histogram(title: str, scores: list[float]) -> str:
                     '<div class="hist-bar-track">',
                     (
                         f'<div class="hist-bar" style="width: {width:.2f}%">'
-                        f'<span>{count}</span></div>'
+                        f"<span>{count}</span></div>"
                         if count
                         else '<div class="hist-bar hist-bar-empty"></div>'
                     ),
@@ -971,15 +997,12 @@ def _render_no_result_section(no_result_names: list[str]) -> str:
             '<div class="empty-state">Every participant matched at least one provider.</div></section>'
         )
 
-    rows = "".join(
-        f"<tr><td>{html.escape(name)}</td></tr>"
-        for name in no_result_names
-    )
+    rows = "".join(f"<tr><td>{html.escape(name)}</td></tr>" for name in no_result_names)
     return (
         '<section class="panel"><div class="panel-head"><h2>Unmatched Athletes</h2></div>'
         f'<p class="section-caption">{len(no_result_names)} participant(s) did not match UTMB, ITRA, or Betrail.</p>'
         '<div class="table-wrap compact-table"><table class="results-table">'
-        '<thead><tr><th>Athlete</th></tr></thead><tbody>'
+        "<thead><tr><th>Athlete</th></tr></thead><tbody>"
         f"{rows}</tbody></table></div></section>"
     )
 
@@ -1062,7 +1085,16 @@ def render_report_html(
             ),
             (
                 "Any provider",
-                str(int(score_summary.get("with_any", max(len(utmb_scores), len(itra_scores), len(betrail_scores))))),
+                str(
+                    int(
+                        score_summary.get(
+                            "with_any",
+                            max(
+                                len(utmb_scores), len(itra_scores), len(betrail_scores)
+                            ),
+                        )
+                    )
+                ),
                 "Participants matched at least once",
             ),
             (
@@ -1078,7 +1110,7 @@ def render_report_html(
             (
                 "Athletes screened",
                 str(participants_count),
-                f'{int(snapshot.get("rows_evaluated", participants_count) or participants_count)} rows evaluated',
+                f"{int(snapshot.get('rows_evaluated', participants_count) or participants_count)} rows evaluated",
             ),
             (
                 "Above threshold",
@@ -1149,9 +1181,9 @@ def render_report_html(
         <p class="section-caption">Quick coverage stats plus score distributions for the full participant field.</p>
         <div class="metric-grid">{score_cards}</div>
         <div class="charts">
-          {_render_histogram('UTMB Index', [float(value) for value in utmb_scores if value is not None])}
-          {_render_histogram('ITRA Score', [float(value) for value in itra_scores if value is not None])}
-          {_render_histogram('Betrail Score', [float(value) for value in betrail_scores if value is not None])}
+          {_render_histogram("UTMB Index", [float(value) for value in utmb_scores if value is not None])}
+          {_render_histogram("ITRA Score", [float(value) for value in itra_scores if value is not None])}
+          {_render_histogram("Betrail Score", [float(value) for value in betrail_scores if value is not None])}
         </div>
       </section>
 
@@ -1260,18 +1292,26 @@ def _sorted_section_entries(
             continue
         try:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             continue
         if not isinstance(payload, dict):
             continue
         relative_dir = meta_path.parent.relative_to(site_root)
         payload.setdefault("report_kind", report_kind)
-        payload.setdefault("report_path", f"{relative_dir.as_posix()}/{REPORT_HTML_FILENAME}")
+        payload.setdefault(
+            "report_path", f"{relative_dir.as_posix()}/{REPORT_HTML_FILENAME}"
+        )
         if report_kind == RACE_REPORT_KIND:
-            payload.setdefault("csv_path", f"{relative_dir.as_posix()}/{REPORT_CSV_FILENAME}")
-            payload.setdefault("json_path", f"{relative_dir.as_posix()}/{REPORT_JSON_FILENAME}")
+            payload.setdefault(
+                "csv_path", f"{relative_dir.as_posix()}/{REPORT_CSV_FILENAME}"
+            )
+            payload.setdefault(
+                "json_path", f"{relative_dir.as_posix()}/{REPORT_JSON_FILENAME}"
+            )
         else:
-            payload.setdefault("json_path", f"{relative_dir.as_posix()}/{REPORT_SNAPSHOT_FILENAME}")
+            payload.setdefault(
+                "json_path", f"{relative_dir.as_posix()}/{REPORT_SNAPSHOT_FILENAME}"
+            )
         entries.append(payload)
 
     def sort_key(item: dict[str, object]) -> tuple[str, str]:
@@ -1288,11 +1328,13 @@ def _section_relative_path(path: object, *, section: str) -> str:
         return "#"
     prefix = f"{section}/"
     if text.startswith(prefix):
-        return text[len(prefix):]
+        return text[len(prefix) :]
     return text
 
 
-def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Trail Race Reports") -> str:
+def render_site_index(
+    entries: list[dict[str, object]], *, site_title: str = "Trail Race Reports"
+) -> str:
     cards: list[str] = []
     total_participants = 0
     total_qualified = 0
@@ -1302,14 +1344,18 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
         qualified = int(entry.get("qualified_count", 0) or 0)
         total_participants += participants
         total_qualified += qualified
-        strategy = _friendly_strategy_label(entry.get("strategy") or "participant-first")
+        strategy = _friendly_strategy_label(
+            entry.get("strategy") or "participant-first"
+        )
         published_text = _format_display_datetime(
             entry.get("published_at") or entry.get("generated_at"),
             convert_to_utc=True,
             default="Unknown time",
         )
         report_path = html.escape(
-            _section_relative_path(entry.get("report_path"), section=REPORTS_SECTION_DIR),
+            _section_relative_path(
+                entry.get("report_path"), section=REPORTS_SECTION_DIR
+            ),
             quote=True,
         )
         csv_path = html.escape(
@@ -1332,11 +1378,15 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
                 <span class="pill">{participants} runners</span>
               </div>
               <div class="pill-row">
-                {_render_pills([
-                    f"{qualified} above threshold",
-                    strategy,
-                    "CSV + JSON export",
-                ])}
+                {
+                _render_pills(
+                    [
+                        f"{qualified} above threshold",
+                        strategy,
+                        "CSV + JSON export",
+                    ]
+                )
+            }
               </div>
               <p class="card-meta">
                 Latest published bundle for this race report archive entry.
@@ -1353,27 +1403,54 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
     if not cards:
         cards.append('<div class="empty-state">No published race reports yet.</div>')
 
-    latest_text = _format_display_datetime(
-        entries[0].get("published_at") or entries[0].get("generated_at"),
-        convert_to_utc=True,
-        default="No published reports yet",
-    ) if entries else "No published reports yet"
+    latest_text = (
+        _format_display_datetime(
+            entries[0].get("published_at") or entries[0].get("generated_at"),
+            convert_to_utc=True,
+            default="No published reports yet",
+        )
+        if entries
+        else "No published reports yet"
+    )
     body_html = f"""
     <section class="hero">
       <p class="eyebrow">Race Archive</p>
       <h1>{html.escape(site_title)}</h1>
       <p class="hero-lead">Published TrailIntel race reports with curated score coverage, provider links, and downloadable exports.</p>
-      {_render_meta_row([f"{len(entries)} published report(s)", f"Latest publish {html.escape(latest_text)}"])}
+      {
+        _render_meta_row(
+            [
+                f"{len(entries)} published report(s)",
+                f"Latest publish {html.escape(latest_text)}",
+            ]
+        )
+    }
       <div class="action-row">
         {_render_action_link("../index.html", "Back to home")}
         {_render_action_link("../forecasts/index.html", "Browse forecasts")}
       </div>
       <div class="metric-grid">
-        {_render_metric_cards([
-            ("Published reports", str(len(entries)), "Timestamped race report bundles"),
-            ("Participants screened", str(total_participants), "Across all published reports"),
-            ("Above threshold", str(total_qualified), "Qualified leaderboard entries"),
-        ])}
+        {
+        _render_metric_cards(
+            [
+                (
+                    "Published reports",
+                    str(len(entries)),
+                    "Timestamped race report bundles",
+                ),
+                (
+                    "Participants screened",
+                    str(total_participants),
+                    "Across all published reports",
+                ),
+                (
+                    "Above threshold",
+                    str(total_qualified),
+                    "Qualified leaderboard entries",
+                ),
+            ]
+        )
+    }
       </div>
     </section>
 
@@ -1385,7 +1462,7 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
         </div>
         <p class="section-caption">Each card links to the published report plus the archived CSV and JSON exports for the same run.</p>
         <div class="collection-grid">
-          {''.join(cards)}
+          {"".join(cards)}
         </div>
       </section>
     </section>
@@ -1416,22 +1493,32 @@ def render_forecast_index(
             default="Unknown time",
         )
         report_path = html.escape(
-            _section_relative_path(entry.get("report_path"), section=FORECASTS_SECTION_DIR),
+            _section_relative_path(
+                entry.get("report_path"), section=FORECASTS_SECTION_DIR
+            ),
             quote=True,
         )
         png_path = html.escape(
-            _section_relative_path(entry.get("png_path"), section=FORECASTS_SECTION_DIR),
+            _section_relative_path(
+                entry.get("png_path"), section=FORECASTS_SECTION_DIR
+            ),
             quote=True,
         )
         gpx_path = html.escape(
-            _section_relative_path(entry.get("gpx_path"), section=FORECASTS_SECTION_DIR),
+            _section_relative_path(
+                entry.get("gpx_path"), section=FORECASTS_SECTION_DIR
+            ),
             quote=True,
         )
         json_path = html.escape(
-            _section_relative_path(entry.get("json_path"), section=FORECASTS_SECTION_DIR),
+            _section_relative_path(
+                entry.get("json_path"), section=FORECASTS_SECTION_DIR
+            ),
             quote=True,
         )
-        start_time = _format_display_datetime(entry.get("start_time"), default="Start time unavailable")
+        start_time = _format_display_datetime(
+            entry.get("start_time"), default="Start time unavailable"
+        )
         duration = _format_duration_label(entry.get("duration"))
         distance_km = float(entry.get("route_distance_km", 0.0) or 0.0)
         total_distance += distance_km
@@ -1444,11 +1531,15 @@ def render_forecast_index(
               </div>
               <p class="card-copy">Published {html.escape(published_text)}.</p>
               <div class="pill-row">
-                {_render_pills([
-                    start_time,
-                    duration or "Duration unavailable",
-                    f"{distance_km:.2f} km route",
-                ])}
+                {
+                _render_pills(
+                    [
+                        start_time,
+                        duration or "Duration unavailable",
+                        f"{distance_km:.2f} km route",
+                    ]
+                )
+            }
               </div>
               <p class="card-meta">Static route-weather forecasts with download links for the source GPX and published snapshot.</p>
               <div class="action-row">
@@ -1464,27 +1555,50 @@ def render_forecast_index(
     if not cards:
         cards.append('<div class="empty-state">No published forecasts yet.</div>')
 
-    latest_text = _format_display_datetime(
-        entries[0].get("published_at") or entries[0].get("generated_at"),
-        convert_to_utc=True,
-        default="No published forecasts yet",
-    ) if entries else "No published forecasts yet"
+    latest_text = (
+        _format_display_datetime(
+            entries[0].get("published_at") or entries[0].get("generated_at"),
+            convert_to_utc=True,
+            default="No published forecasts yet",
+        )
+        if entries
+        else "No published forecasts yet"
+    )
     body_html = f"""
     <section class="hero">
       <p class="eyebrow">Forecast Archive</p>
       <h1>{html.escape(site_title)}</h1>
       <p class="hero-lead">Published route-weather forecasts with static PNG summaries, source GPX files, and archived JSON snapshots.</p>
-      {_render_meta_row([f"{len(entries)} published forecast(s)", f"Latest publish {html.escape(latest_text)}"])}
+      {
+        _render_meta_row(
+            [
+                f"{len(entries)} published forecast(s)",
+                f"Latest publish {html.escape(latest_text)}",
+            ]
+        )
+    }
       <div class="action-row">
         {_render_action_link("../index.html", "Back to home")}
         {_render_action_link("../reports/index.html", "Browse race reports")}
       </div>
       <div class="metric-grid">
-        {_render_metric_cards([
-            ("Published forecasts", str(len(entries)), "Timestamped route forecast bundles"),
-            ("Route distance", f"{total_distance:.1f} km", "Across all published forecasts"),
-            ("Latest publish", latest_text, "Most recent forecast bundle"),
-        ])}
+        {
+        _render_metric_cards(
+            [
+                (
+                    "Published forecasts",
+                    str(len(entries)),
+                    "Timestamped route forecast bundles",
+                ),
+                (
+                    "Route distance",
+                    f"{total_distance:.1f} km",
+                    "Across all published forecasts",
+                ),
+                ("Latest publish", latest_text, "Most recent forecast bundle"),
+            ]
+        )
+    }
       </div>
     </section>
 
@@ -1496,7 +1610,7 @@ def render_forecast_index(
         </div>
         <p class="section-caption">Each forecast card links to the hosted report plus its PNG, GPX, and JSON snapshot.</p>
         <div class="collection-grid">
-          {''.join(cards)}
+          {"".join(cards)}
         </div>
       </section>
     </section>
@@ -1525,7 +1639,9 @@ def render_root_index(
     if race_entries or forecast_entries:
         merged = [*(race_entries[:1]), *(forecast_entries[:1])]
         merged.sort(
-            key=lambda item: str(item.get("published_at") or item.get("generated_at") or ""),
+            key=lambda item: str(
+                item.get("published_at") or item.get("generated_at") or ""
+            ),
             reverse=True,
         )
         latest_publish = _format_display_datetime(
@@ -1533,42 +1649,80 @@ def render_root_index(
             convert_to_utc=True,
         )
 
-    race_report_path = str(latest_race.get("report_path") or f"{REPORTS_SECTION_DIR}/index.html")
-    forecast_report_path = str(latest_forecast.get("report_path") or f"{FORECASTS_SECTION_DIR}/index.html")
+    race_report_path = str(
+        latest_race.get("report_path") or f"{REPORTS_SECTION_DIR}/index.html"
+    )
+    forecast_report_path = str(
+        latest_forecast.get("report_path") or f"{FORECASTS_SECTION_DIR}/index.html"
+    )
     race_report_href = html.escape(race_report_path, quote=True)
     forecast_report_href = html.escape(forecast_report_path, quote=True)
-    race_title = html.escape(str(latest_race.get("title") or "No published race reports yet"))
-    forecast_title = html.escape(str(latest_forecast.get("title") or "No published forecasts yet"))
-    race_published = _format_display_datetime(
-        latest_race.get("published_at") or latest_race.get("generated_at"),
-        convert_to_utc=True,
-        default="No race reports published yet",
-    ) if race_entries else "No race reports published yet"
-    forecast_published = _format_display_datetime(
-        latest_forecast.get("published_at") or latest_forecast.get("generated_at"),
-        convert_to_utc=True,
-        default="No forecasts published yet",
-    ) if forecast_entries else "No forecasts published yet"
+    race_title = html.escape(
+        str(latest_race.get("title") or "No published race reports yet")
+    )
+    forecast_title = html.escape(
+        str(latest_forecast.get("title") or "No published forecasts yet")
+    )
+    race_published = (
+        _format_display_datetime(
+            latest_race.get("published_at") or latest_race.get("generated_at"),
+            convert_to_utc=True,
+            default="No race reports published yet",
+        )
+        if race_entries
+        else "No race reports published yet"
+    )
+    forecast_published = (
+        _format_display_datetime(
+            latest_forecast.get("published_at") or latest_forecast.get("generated_at"),
+            convert_to_utc=True,
+            default="No forecasts published yet",
+        )
+        if forecast_entries
+        else "No forecasts published yet"
+    )
     body_html = f"""
     <section class="hero">
       <p class="eyebrow">TrailIntel Static Publishing</p>
       <h1>Trail race reports and forecast archives, in one editorial front door.</h1>
       <p class="hero-lead">Browse the public TrailIntel archive of race-score reports and route-weather forecasts published by the GitHub workflows.</p>
-      {_render_meta_row([
-          f"{race_count} race report(s)",
-          f"{forecast_count} forecast(s)",
-          html.escape(f"Latest publish {latest_publish}") if latest_publish else "",
-      ])}
+      {
+        _render_meta_row(
+            [
+                f"{race_count} race report(s)",
+                f"{forecast_count} forecast(s)",
+                html.escape(f"Latest publish {latest_publish}")
+                if latest_publish
+                else "",
+            ]
+        )
+    }
       <div class="action-row">
-        {_render_action_link(f"{REPORTS_SECTION_DIR}/index.html", "Browse race reports", primary=True)}
+        {
+        _render_action_link(
+            f"{REPORTS_SECTION_DIR}/index.html", "Browse race reports", primary=True
+        )
+    }
         {_render_action_link(f"{FORECASTS_SECTION_DIR}/index.html", "Browse forecasts")}
       </div>
       <div class="metric-grid">
-        {_render_metric_cards([
-            ("Race reports", str(race_count), "Published score-driven race archives"),
-            ("Forecasts", str(forecast_count), "Published route-weather outlooks"),
-            ("Latest publish", latest_publish or "Not yet published", "Most recent site update"),
-        ])}
+        {
+        _render_metric_cards(
+            [
+                (
+                    "Race reports",
+                    str(race_count),
+                    "Published score-driven race archives",
+                ),
+                ("Forecasts", str(forecast_count), "Published route-weather outlooks"),
+                (
+                    "Latest publish",
+                    latest_publish or "Not yet published",
+                    "Most recent site update",
+                ),
+            ]
+        )
+    }
       </div>
     </section>
 
@@ -1584,14 +1738,20 @@ def render_root_index(
             <div class="card-top">
               <div>
                 <p class="eyebrow">Race Reports</p>
-                <h2 class="card-title"><a href="{race_report_href}">{race_title}</a></h2>
+                <h2 class="card-title"><a href="{race_report_href}">{
+        race_title
+    }</a></h2>
                 <p class="card-copy">{html.escape(race_published)}.</p>
               </div>
               <span class="pill">{race_count} total</span>
             </div>
             <p class="card-meta">Score-based race analysis with leaderboard exports, provider links, and coverage summaries.</p>
             <div class="action-row">
-              {_render_action_link(f"{REPORTS_SECTION_DIR}/index.html", "Open race archive", primary=True)}
+              {
+        _render_action_link(
+            f"{REPORTS_SECTION_DIR}/index.html", "Open race archive", primary=True
+        )
+    }
               {_render_action_link(race_report_href, "Latest race report")}
             </div>
           </article>
@@ -1599,14 +1759,20 @@ def render_root_index(
             <div class="card-top">
               <div>
                 <p class="eyebrow">Forecasts</p>
-                <h2 class="card-title"><a href="{forecast_report_href}">{forecast_title}</a></h2>
+                <h2 class="card-title"><a href="{forecast_report_href}">{
+        forecast_title
+    }</a></h2>
                 <p class="card-copy">{html.escape(forecast_published)}.</p>
               </div>
               <span class="pill">{forecast_count} total</span>
             </div>
             <p class="card-meta">Static route-weather bundles with hosted PNG summaries, GPX files, and archived forecast snapshots.</p>
             <div class="action-row">
-              {_render_action_link(f"{FORECASTS_SECTION_DIR}/index.html", "Open forecast archive", primary=True)}
+              {
+        _render_action_link(
+            f"{FORECASTS_SECTION_DIR}/index.html", "Open forecast archive", primary=True
+        )
+    }
               {_render_action_link(forecast_report_href, "Latest forecast")}
             </div>
           </article>
@@ -1687,13 +1853,15 @@ def copy_bundle_to_targets(
                 loaded = json.loads(meta_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     existing = loaded
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 existing = {}
         combined = {**existing, **published_metadata}
         relative_dir = target.relative_to(root).as_posix()
         for key, filename in asset_paths.items():
             combined[key] = f"{relative_dir}/{filename}"
-        meta_path.write_text(json.dumps(combined, indent=2, ensure_ascii=False), encoding="utf-8")
+        meta_path.write_text(
+            json.dumps(combined, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     refresh_site_index(root)
 

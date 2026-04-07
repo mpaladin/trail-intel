@@ -61,7 +61,9 @@ def align_forecasts(
                     ratio,
                 ),
                 precipitation_mm=forecast.precipitation_mm[hour_index],
-                precipitation_probability=forecast.precipitation_probability[hour_index],
+                precipitation_probability=forecast.precipitation_probability[
+                    hour_index
+                ],
             )
         )
 

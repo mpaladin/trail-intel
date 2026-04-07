@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import html
 import json
-from pathlib import Path
 import shutil
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from trailintel.forecast.engine import select_wettest_sample
@@ -179,7 +179,7 @@ def _sample_rows_table(rows: list[dict[str, object]]) -> str:
             "".join(
                 [
                     "<tr>",
-                    f"<td class=\"score-cell\">{html.escape(timestamp)}</td>",
+                    f'<td class="score-cell">{html.escape(timestamp)}</td>',
                     f"<td>{html.escape(str(row.get('distance_km', '')))}</td>",
                     f"<td>{html.escape(str(row.get('elevation_m', '')))}</td>",
                     f"<td>{html.escape(str(row.get('temperature_c', '')))}</td>",
@@ -200,9 +200,7 @@ def _sample_rows_table(rows: list[dict[str, object]]) -> str:
         "<th>Timestamp</th><th>Distance (km)</th><th>Elevation (m)</th><th>Temp (C)</th>"
         "<th>Feels Like (C)</th><th>Wind (km/h)</th><th>Gust (km/h)</th><th>Direction</th>"
         "<th>Clouds (%)</th><th>Precip (mm)</th><th>Rain Chance (%)</th>"
-        "</tr></thead><tbody>"
-        + "".join(body_rows)
-        + "</tbody></table></div>"
+        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
     )
 
 
@@ -248,7 +246,9 @@ def render_forecast_html(
     if not isinstance(sample_rows, list):
         sample_rows = []
 
-    start_label = _format_display_datetime(snapshot.get("start_time"), default="Start time unavailable")
+    start_label = _format_display_datetime(
+        snapshot.get("start_time"), default="Start time unavailable"
+    )
     generated_label = _format_display_datetime(
         snapshot.get("generated_at"),
         convert_to_utc=True,
@@ -258,11 +258,17 @@ def render_forecast_html(
     ascent_label = f"{float(snapshot.get('route_ascent_m', 0.0) or 0.0):.0f} m"
     source_label = str(snapshot.get("source_label") or "").strip()
     timezone_name = str(snapshot.get("timezone") or "").strip()
-    wettest_label = _format_compact_timestamp(summary.get("wettest_time"), default="Unknown")
+    wettest_label = _format_compact_timestamp(
+        summary.get("wettest_time"), default="Unknown"
+    )
     cards = _render_metric_cards(
         [
             ("Start", start_label, timezone_name or None),
-            ("Duration", duration_label or str(snapshot.get("duration", "")), "Planned route duration"),
+            (
+                "Duration",
+                duration_label or str(snapshot.get("duration", "")),
+                "Planned route duration",
+            ),
             ("Distance", distance_label, "Total route distance"),
             ("Ascent", ascent_label, "Estimated climbing"),
             (
@@ -419,7 +425,9 @@ def publish_forecast_bundle_to_site(
     notes: str,
     published_at: datetime,
 ) -> dict[str, str]:
-    report_dir, latest_dir = build_publish_paths(route_name=route_name, published_at=published_at)
+    report_dir, latest_dir = build_publish_paths(
+        route_name=route_name, published_at=published_at
+    )
     copy_bundle_to_targets(
         source_dir=source_dir,
         site_root=pages_root,

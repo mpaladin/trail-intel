@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import unittest
+from datetime import UTC, datetime, timedelta
 
 from trailintel.forecast.engine import summarize_report
 from trailintel.forecast.models import (
@@ -71,7 +71,9 @@ def build_report(samples: list[SampleForecast]) -> ForecastReport:
 
 
 class ForecastEngineTests(unittest.TestCase):
-    def test_summarize_report_prefers_highest_rain_amount_over_probability(self) -> None:
+    def test_summarize_report_prefers_highest_rain_amount_over_probability(
+        self,
+    ) -> None:
         report = build_report(
             [
                 make_sample(

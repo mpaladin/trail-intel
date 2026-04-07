@@ -5,23 +5,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from trailintel.forecast.errors import InputValidationError
 
-
 FORECAST_HORIZON_DAYS = 16
 
 
 def parse_duration(value: str) -> timedelta:
     parts = value.split(":")
     if len(parts) not in {2, 3}:
-        raise InputValidationError(
-            "Duration must be in HH:MM or HH:MM:SS format."
-        )
+        raise InputValidationError("Duration must be in HH:MM or HH:MM:SS format.")
 
     try:
         numbers = [int(part) for part in parts]
     except ValueError as exc:
-        raise InputValidationError(
-            "Duration contains non-numeric parts."
-        ) from exc
+        raise InputValidationError("Duration contains non-numeric parts.") from exc
 
     hours, minutes = numbers[0], numbers[1]
     seconds = numbers[2] if len(numbers) == 3 else 0

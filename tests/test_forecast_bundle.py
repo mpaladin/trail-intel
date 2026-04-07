@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 
 from trailintel.forecast.bundle import generate_forecast_assets
 from trailintel.forecast.render import render_report as original_render_report
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
 
@@ -21,7 +20,11 @@ class ForecastBundleTests(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             payload = {
                 "hourly": {
-                    "time": ["2026-03-28T08:00", "2026-03-28T09:00", "2026-03-28T10:00"],
+                    "time": [
+                        "2026-03-28T08:00",
+                        "2026-03-28T09:00",
+                        "2026-03-28T10:00",
+                    ],
                     "temperature_2m": [8, 10, 12],
                     "apparent_temperature": [7, 9, 11],
                     "wind_speed_10m": [12, 15, 18],
@@ -90,7 +93,9 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Mar 28, 08:00", html)
             self.assertNotIn("2026-03-28T08:00:00+00:00", html)
 
-            snapshot = json.loads((site_dir / "snapshot.json").read_text(encoding="utf-8"))
+            snapshot = json.loads(
+                (site_dir / "snapshot.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(snapshot["report_kind"], "forecast")
             self.assertEqual(snapshot["title"], "Sample Loop Forecast")
             self.assertEqual(snapshot["summary"]["wettest_precipitation_mm"], 0.4)
@@ -100,6 +105,9 @@ class ForecastBundleTests(unittest.TestCase):
             )
 
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
+        import math
+        from datetime import timedelta
+
         from trailintel.forecast.models import (
             Bounds,
             ForecastReport,
@@ -109,8 +117,6 @@ class ForecastBundleTests(unittest.TestCase):
             SamplePoint,
         )
         from trailintel.forecast.render import render_report
-        from datetime import timedelta
-        import math
 
         def build_render_report(sample_count: int) -> ForecastReport:
             start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
@@ -150,8 +156,12 @@ class ForecastBundleTests(unittest.TestCase):
                         wind_kph=12.0 + 18.0 * fraction,
                         wind_gust_kph=16.0 + 23.0 * fraction,
                         wind_direction_deg=(300.0 + 90.0 * fraction) % 360,
-                        cloud_cover_pct=min(95.0, 25.0 + 55.0 * abs(math.sin(fraction * math.pi))),
-                        precipitation_mm=0.0 if index < 4 else min(1.6, 0.2 * (index - 3)),
+                        cloud_cover_pct=min(
+                            95.0, 25.0 + 55.0 * abs(math.sin(fraction * math.pi))
+                        ),
+                        precipitation_mm=0.0
+                        if index < 4
+                        else min(1.6, 0.2 * (index - 3)),
                         precipitation_probability=min(100.0, 8.0 + 7.0 * index),
                     )
                 )
@@ -167,7 +177,9 @@ class ForecastBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for sample_count in (5, 80):
                 output = Path(tmp) / f"render-{sample_count}.png"
-                render_report(build_render_report(sample_count), output, use_real_map=False)
+                render_report(
+                    build_render_report(sample_count), output, use_real_map=False
+                )
                 self.assertTrue(output.exists())
                 self.assertGreater(output.stat().st_size, 0)
 

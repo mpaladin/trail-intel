@@ -33,7 +33,9 @@ STOPWORDS = {
     "total",
     "finishers",
 }
-NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z'\-\.]{1,}(?:\s+[A-Za-z][A-Za-z'\-\.]{1,})+$")
+NAME_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z'\-\.]{1,}(?:\s+[A-Za-z][A-Za-z'\-\.]{1,})+$"
+)
 YAKA_HOST_SUFFIX = "yaka-inscription.com"
 YAKA_FRONT_API_BASE = "https://front-api.yaka-inscription.com"
 YAKA_HEADERS = {
@@ -146,7 +148,9 @@ def _extract_names_from_json(value: object) -> list[str]:
 def _extract_names_from_html(html: str, selector: str | None = None) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     if selector:
-        scoped = [element.get_text(" ", strip=True) for element in soup.select(selector)]
+        scoped = [
+            element.get_text(" ", strip=True) for element in soup.select(selector)
+        ]
         names = [text for text in scoped if looks_like_name(text)]
         return dedupe_names(names)
 
@@ -187,7 +191,10 @@ def _competition_matches_name(competition: dict[str, object], target: str) -> bo
         return False
 
     competition_id = competition.get("_id")
-    if isinstance(competition_id, str) and competition_id.casefold() == normalized_target:
+    if (
+        isinstance(competition_id, str)
+        and competition_id.casefold() == normalized_target
+    ):
         return True
 
     names = competition.get("name")
@@ -310,7 +317,9 @@ def _parse_raceresult_payload(payload: object) -> list[str]:
 
     names: list[str] = []
     for row in _iter_raceresult_rows(payload.get("data")):
-        candidate = _best_raceresult_name_from_row(row, preferred_index=preferred_name_index)
+        candidate = _best_raceresult_name_from_row(
+            row, preferred_index=preferred_name_index
+        )
         if candidate:
             names.append(candidate)
     return dedupe_names(names)
@@ -318,7 +327,10 @@ def _parse_raceresult_payload(payload: object) -> list[str]:
 
 def _raceresult_is_list_path(path: str) -> bool:
     lower = path.casefold()
-    return RACERESULT_DATA_PATH_MARKER in lower or RACERESULT_PARTICIPANTS_LIST_MARKER in lower
+    return (
+        RACERESULT_DATA_PATH_MARKER in lower
+        or RACERESULT_PARTICIPANTS_LIST_MARKER in lower
+    )
 
 
 def _raceresult_event_id_from_path(path: str) -> str | None:
@@ -337,7 +349,9 @@ def _fetch_raceresult_json(
     timeout: int,
     params: dict[str, object] | None = None,
 ) -> object:
-    response = requests.get(url, headers=RACERESULT_HEADERS, timeout=timeout, params=params)
+    response = requests.get(
+        url, headers=RACERESULT_HEADERS, timeout=timeout, params=params
+    )
     response.raise_for_status()
     return response.json()
 
@@ -407,7 +421,9 @@ def _fetch_raceresult_from_base(
     scheme = parsed.scheme or "https"
     base_origin = f"{scheme}://{parsed.netloc}"
     config_url = f"{base_origin}/{event_id}/participants/config"
-    config_payload = _fetch_raceresult_json(config_url, timeout=timeout, params={"lang": "en"})
+    config_payload = _fetch_raceresult_json(
+        config_url, timeout=timeout, params={"lang": "en"}
+    )
     if not isinstance(config_payload, dict):
         raise ValueError("RaceResult config response was invalid.")
 
@@ -450,9 +466,12 @@ def _fetch_raceresult_from_base(
         if filter_param:
             params_with_filter = dict(params)
             params_with_filter["f"] = filter_param
-            payload = _fetch_raceresult_json(list_url, timeout=timeout, params=params_with_filter)
+            payload = _fetch_raceresult_json(
+                list_url, timeout=timeout, params=params_with_filter
+            )
 
     return _parse_raceresult_payload(payload)
+
 
 def _fetch_raceresult_participants(
     url: str,
@@ -560,7 +579,9 @@ def _fetch_wedosport_participants(
 def _extract_grandraid_names(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     names: list[str] = []
-    for item in soup.select("ol.result-list.custom-result-list li:not(.bold) span.title"):
+    for item in soup.select(
+        "ol.result-list.custom-result-list li:not(.bold) span.title"
+    ):
         name = normalize_name(item.get_text(" ", strip=True))
         if name and _looks_like_person_name_permissive(name):
             names.append(name)
@@ -599,7 +620,9 @@ def _fetch_grandraid_participants(
 
     while current_url and current_url not in seen_urls:
         seen_urls.add(current_url)
-        response = requests.get(current_url, headers=GENERIC_BROWSER_HEADERS, timeout=timeout)
+        response = requests.get(
+            current_url, headers=GENERIC_BROWSER_HEADERS, timeout=timeout
+        )
         response.raise_for_status()
         html = response.text
         names.extend(_extract_grandraid_names(html))
@@ -657,8 +680,12 @@ def _fetch_yaka_participants(
                 )
             competition_ids = filtered
 
-    registrations_url = f"{YAKA_FRONT_API_BASE}/registrations/{edition_id}/_search/%7B%7D"
-    registrations_response = requests.get(registrations_url, headers=YAKA_HEADERS, timeout=timeout)
+    registrations_url = (
+        f"{YAKA_FRONT_API_BASE}/registrations/{edition_id}/_search/%7B%7D"
+    )
+    registrations_response = requests.get(
+        registrations_url, headers=YAKA_HEADERS, timeout=timeout
+    )
     registrations_response.raise_for_status()
     payload = registrations_response.json()
     if not isinstance(payload, list):
@@ -730,8 +757,12 @@ def _fetch_njuko_participants(
                 )
             competition_ids = filtered
 
-    registrations_url = f"{NJUKO_FRONT_API_BASE}/registrations/{edition_id}/_search/%7B%7D"
-    registrations_response = requests.get(registrations_url, headers=NJUKO_HEADERS, timeout=timeout)
+    registrations_url = (
+        f"{NJUKO_FRONT_API_BASE}/registrations/{edition_id}/_search/%7B%7D"
+    )
+    registrations_response = requests.get(
+        registrations_url, headers=NJUKO_HEADERS, timeout=timeout
+    )
     registrations_response.raise_for_status()
     payload = registrations_response.json()
     if not isinstance(payload, list):
@@ -836,7 +867,9 @@ def load_itra_overrides(path: str | Path) -> dict[str, float]:
     rows = csv.DictReader(text.splitlines())
     if not rows.fieldnames:
         raise ValueError("ITRA overrides CSV must include headers.")
-    name_key = next((k for k in rows.fieldnames if k and k.strip().lower() in NAME_KEYS), None)
+    name_key = next(
+        (k for k in rows.fieldnames if k and k.strip().lower() in NAME_KEYS), None
+    )
     score_key = next(
         (
             k

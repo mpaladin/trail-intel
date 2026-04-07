@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-import unittest
 
 from trailintel.forecast.errors import GPXParseError, InputValidationError
 from trailintel.forecast.gpx_route import parse_gpx, sample_route
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
 

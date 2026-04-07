@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -12,7 +12,6 @@ from trailintel.forecast.bundle import ForecastBundleResult
 from trailintel.forecast.cli import app
 from trailintel.forecast.engine import ForecastSummary
 from trailintel.forecast.errors import EpicForecastError
-
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
 
@@ -64,7 +63,10 @@ class ForecastCliTests(unittest.TestCase):
                 snapshot=None,
             )
 
-            with patch("trailintel.forecast.cli.generate_forecast_assets", return_value=fake_result):
+            with patch(
+                "trailintel.forecast.cli.generate_forecast_assets",
+                return_value=fake_result,
+            ):
                 result = self.runner.invoke(
                     app,
                     [

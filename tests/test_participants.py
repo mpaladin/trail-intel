@@ -36,7 +36,9 @@ class ParticipantParsingTests(unittest.TestCase):
         self.assertIn("Jim Walmsley", names)
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_yaka_participants_with_competition_filter(self, mock_get: Mock) -> None:
+    def test_fetch_yaka_participants_with_competition_filter(
+        self, mock_get: Mock
+    ) -> None:
         edition_payload = {
             "_id": "edition-1",
             "competitions": [
@@ -104,13 +106,17 @@ class ParticipantParsingTests(unittest.TestCase):
             )
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_njuko_participants_with_competition_filter(self, mock_get: Mock) -> None:
+    def test_fetch_njuko_participants_with_competition_filter(
+        self, mock_get: Mock
+    ) -> None:
         edition_payload = {
             "_id": "edition-njuko-1",
             "competitions": [
                 {
                     "_id": "comp-42",
-                    "name": [{"translation": "Maratrail des hauts du lac - 42km - 1900m D+"}],
+                    "name": [
+                        {"translation": "Maratrail des hauts du lac - 42km - 1900m D+"}
+                    ],
                 },
                 {
                     "_id": "comp-23",
@@ -157,7 +163,9 @@ class ParticipantParsingTests(unittest.TestCase):
             "competitions": [
                 {
                     "_id": "comp-42",
-                    "name": [{"translation": "Maratrail des hauts du lac - 42km - 1900m D+"}],
+                    "name": [
+                        {"translation": "Maratrail des hauts du lac - 42km - 1900m D+"}
+                    ],
                 }
             ],
         }
@@ -224,8 +232,18 @@ class ParticipantParsingTests(unittest.TestCase):
             "server": "my4.raceresult.com",
             "TabConfig": {
                 "Lists": [
-                    {"Name": "Online|Partecipanti_2", "Mode": "", "Contest": "0", "Format": "VP"},
-                    {"Name": "Hidden", "Mode": "hidden", "Contest": "0", "Format": "VP"},
+                    {
+                        "Name": "Online|Partecipanti_2",
+                        "Mode": "",
+                        "Contest": "0",
+                        "Format": "VP",
+                    },
+                    {
+                        "Name": "Hidden",
+                        "Mode": "hidden",
+                        "Contest": "0",
+                        "Format": "VP",
+                    },
                 ]
             },
         }
@@ -253,7 +271,9 @@ class ParticipantParsingTests(unittest.TestCase):
             mock_get.call_args_list[0].args[0],
             "https://my.raceresult.com/375451/participants/config",
         )
-        self.assertEqual(mock_get.call_args_list[0].kwargs.get("params"), {"lang": "en"})
+        self.assertEqual(
+            mock_get.call_args_list[0].kwargs.get("params"), {"lang": "en"}
+        )
         self.assertEqual(
             mock_get.call_args_list[1].args[0],
             "https://my4.raceresult.com/375451/participants/list",
@@ -264,13 +284,20 @@ class ParticipantParsingTests(unittest.TestCase):
         self.assertEqual(params.get("page"), "participants")
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_raceresult_participants_base_page_with_filter(self, mock_get: Mock) -> None:
+    def test_fetch_raceresult_participants_base_page_with_filter(
+        self, mock_get: Mock
+    ) -> None:
         config_payload = {
             "key": "abc",
             "server": "my4.raceresult.com",
             "TabConfig": {
                 "Lists": [
-                    {"Name": "Online|Partecipanti_2", "Mode": "", "Contest": "0", "Format": "VP"},
+                    {
+                        "Name": "Online|Partecipanti_2",
+                        "Mode": "",
+                        "Contest": "0",
+                        "Format": "VP",
+                    },
                 ]
             },
         }
@@ -313,13 +340,20 @@ class ParticipantParsingTests(unittest.TestCase):
         self.assertIn("55K +3000", str(params.get("f")))
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_raceresult_participants_base_page_no_filter_match(self, mock_get: Mock) -> None:
+    def test_fetch_raceresult_participants_base_page_no_filter_match(
+        self, mock_get: Mock
+    ) -> None:
         config_payload = {
             "key": "abc",
             "server": "my4.raceresult.com",
             "TabConfig": {
                 "Lists": [
-                    {"Name": "Online|Partecipanti_2", "Mode": "", "Contest": "0", "Format": "VP"},
+                    {
+                        "Name": "Online|Partecipanti_2",
+                        "Mode": "",
+                        "Contest": "0",
+                        "Format": "VP",
+                    },
                 ]
             },
         }
@@ -348,6 +382,7 @@ class ParticipantParsingTests(unittest.TestCase):
 
         self.assertEqual(names, ["Daniele Roman"])
         self.assertEqual(mock_get.call_count, 2)
+
     @patch("trailintel.participants.requests.get")
     def test_fetch_raceresult_dedup_and_accents(self, mock_get: Mock) -> None:
         payload = {
@@ -401,10 +436,14 @@ class ParticipantParsingTests(unittest.TestCase):
 
         self.assertEqual(names, ["Alice Martin"])
         self.assertEqual(mock_get.call_count, 1)
-        self.assertEqual(mock_get.call_args.kwargs.get("headers"), GENERIC_BROWSER_HEADERS)
+        self.assertEqual(
+            mock_get.call_args.kwargs.get("headers"), GENERIC_BROWSER_HEADERS
+        )
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_wedosport_participants_with_competition_filter(self, mock_get: Mock) -> None:
+    def test_fetch_wedosport_participants_with_competition_filter(
+        self, mock_get: Mock
+    ) -> None:
         html = """
         <table id="classifica">
           <thead>
@@ -444,10 +483,14 @@ class ParticipantParsingTests(unittest.TestCase):
         )
 
         self.assertEqual(names, ["Marco Achilea"])
-        self.assertEqual(mock_get.call_args.kwargs.get("headers"), GENERIC_BROWSER_HEADERS)
+        self.assertEqual(
+            mock_get.call_args.kwargs.get("headers"), GENERIC_BROWSER_HEADERS
+        )
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_grandraid_participants_follows_pagination(self, mock_get: Mock) -> None:
+    def test_fetch_grandraid_participants_follows_pagination(
+        self, mock_get: Mock
+    ) -> None:
         first_page = """
         <a id="pagination_inscrits" class="pagination_ancre"></a>
         <p><strong>2750 coureurs</strong></p>
@@ -493,16 +536,25 @@ class ParticipantParsingTests(unittest.TestCase):
 
         self.assertEqual(
             names,
-            ["Ammendola Antonio", "ABAS Frédéric", "ABITBOL BAPTISTE", "Abrousse Jérôme"],
+            [
+                "Ammendola Antonio",
+                "ABAS Frédéric",
+                "ABITBOL BAPTISTE",
+                "Abrousse Jérôme",
+            ],
         )
-        self.assertEqual(mock_get.call_args_list[0].kwargs.get("headers"), GENERIC_BROWSER_HEADERS)
+        self.assertEqual(
+            mock_get.call_args_list[0].kwargs.get("headers"), GENERIC_BROWSER_HEADERS
+        )
         self.assertEqual(
             mock_get.call_args_list[1].args[0],
             "https://www.grandraid-reunion.com/fr/listes-des-inscrits/?type_course=GRR&debut_inscrits=50",
         )
 
     @patch("trailintel.participants.requests.get")
-    def test_fetch_grandraid_participants_only_for_matching_urls(self, mock_get: Mock) -> None:
+    def test_fetch_grandraid_participants_only_for_matching_urls(
+        self, mock_get: Mock
+    ) -> None:
         response = Mock()
         response.raise_for_status.return_value = None
         response.headers = {"content-type": "text/html"}

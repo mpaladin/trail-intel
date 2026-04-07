@@ -8,13 +8,27 @@ from pathlib import Path
 from trailintel.models import AthleteRecord
 
 
-def sort_records(records: list[AthleteRecord], sort_by: str = "combined") -> list[AthleteRecord]:
+def sort_records(
+    records: list[AthleteRecord], sort_by: str = "combined"
+) -> list[AthleteRecord]:
     if sort_by == "utmb":
-        return sorted(records, key=lambda r: r.utmb_index if r.utmb_index is not None else -1, reverse=True)
+        return sorted(
+            records,
+            key=lambda r: r.utmb_index if r.utmb_index is not None else -1,
+            reverse=True,
+        )
     if sort_by == "itra":
-        return sorted(records, key=lambda r: r.itra_score if r.itra_score is not None else -1, reverse=True)
+        return sorted(
+            records,
+            key=lambda r: r.itra_score if r.itra_score is not None else -1,
+            reverse=True,
+        )
     if sort_by == "betrail":
-        return sorted(records, key=lambda r: r.betrail_score if r.betrail_score is not None else -1, reverse=True)
+        return sorted(
+            records,
+            key=lambda r: r.betrail_score if r.betrail_score is not None else -1,
+            reverse=True,
+        )
     return sorted(records, key=lambda r: r.combined_score, reverse=True)
 
 

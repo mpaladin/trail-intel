@@ -20,7 +20,10 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name in {"ForecastBundleResult", "generate_forecast_assets"}:
-        from trailintel.forecast.bundle import ForecastBundleResult, generate_forecast_assets
+        from trailintel.forecast.bundle import (
+            ForecastBundleResult,
+            generate_forecast_assets,
+        )
 
         exports = {
             "ForecastBundleResult": ForecastBundleResult,
@@ -28,7 +31,11 @@ def __getattr__(name: str) -> Any:
         }
         return exports[name]
     if name in {"ForecastSummary", "build_report", "summarize_report"}:
-        from trailintel.forecast.engine import ForecastSummary, build_report, summarize_report
+        from trailintel.forecast.engine import (
+            ForecastSummary,
+            build_report,
+            summarize_report,
+        )
 
         exports = {
             "ForecastSummary": ForecastSummary,

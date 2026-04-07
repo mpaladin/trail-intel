@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-import sys
 from typing import Iterable
 
 import requests
@@ -17,7 +17,11 @@ from trailintel.participants import (
     load_participants_file,
     normalize_name,
 )
-from trailintel.providers.betrail import BetrailCatalogEntry, BetrailClient, BetrailLookupError
+from trailintel.providers.betrail import (
+    BetrailCatalogEntry,
+    BetrailClient,
+    BetrailLookupError,
+)
 from trailintel.providers.itra import ItraCatalogEntry, ItraClient, ItraLookupError
 from trailintel.providers.utmb import UtmbCatalogEntry, UtmbClient
 from trailintel.report import export_records, render_table, sort_records
@@ -87,12 +91,16 @@ def _best_catalog_match(
         exact = exact_lookup.get(key)
         if exact:
             name, score, profile_url = exact
-            return CatalogMatch(confidence=1.0, matched_name=name, profile_url=profile_url, score=score)
+            return CatalogMatch(
+                confidence=1.0, matched_name=name, profile_url=profile_url, score=score
+            )
 
     best: tuple[str, float, str | None] | None = None
     best_confidence = 0.0
     for candidate_name, candidate_score, candidate_profile in entries:
-        if enforce_strong_name_guard and not _is_strong_catalog_name_match(input_name, candidate_name):
+        if enforce_strong_name_guard and not _is_strong_catalog_name_match(
+            input_name, candidate_name
+        ):
             continue
         confidence = match_score(input_name, candidate_name)
         if confidence > best_confidence:
@@ -138,15 +146,22 @@ def _is_above_threshold(record: AthleteRecord, threshold: float) -> bool:
     return (
         (record.utmb_index is not None and record.utmb_index > threshold)
         or (record.itra_score is not None and record.itra_score > threshold)
-        or (record.betrail_score is not None and record.betrail_score > _betrail_threshold(threshold))
+        or (
+            record.betrail_score is not None
+            and record.betrail_score > _betrail_threshold(threshold)
+        )
     )
 
 
-def _should_lookup_itra_after_utmb(*, utmb_index: float | None, threshold: float) -> bool:
+def _should_lookup_itra_after_utmb(
+    *, utmb_index: float | None, threshold: float
+) -> bool:
     return utmb_index is None or utmb_index > threshold
 
 
-def _itra_skipped_due_to_utmb_note(*, utmb_index: float | None, threshold: float) -> str:
+def _itra_skipped_due_to_utmb_note(
+    *, utmb_index: float | None, threshold: float
+) -> str:
     if utmb_index is None:
         return "ITRA skipped after UTMB pass"
     return f"ITRA skipped because UTMB {utmb_index:.1f} <= threshold {threshold:.1f}"
@@ -297,11 +312,13 @@ def _enrich_records(
     need_betrail_catalog = any(
         score_repo is None
         or (
-            (lookup := score_repo.get_provider_snapshot(
-                query_name=name,
-                provider="betrail",
-                lookup_threshold=betrail_lookup_threshold,
-            ))
+            (
+                lookup := score_repo.get_provider_snapshot(
+                    query_name=name,
+                    provider="betrail",
+                    lookup_threshold=betrail_lookup_threshold,
+                )
+            )
             is None
             or lookup.is_stale
         )
@@ -317,8 +334,14 @@ def _enrich_records(
     if provider_issues is not None:
         provider_issues["betrail"] = betrail_issue
 
-    betrail_entries = [(entry.name, entry.betrail_score, entry.profile_url) for entry in betrail_catalog]
-    betrail_exact = {canonical_name(name): (name, score, profile) for name, score, profile in betrail_entries}
+    betrail_entries = [
+        (entry.name, entry.betrail_score, entry.profile_url)
+        for entry in betrail_catalog
+    ]
+    betrail_exact = {
+        canonical_name(name): (name, score, profile)
+        for name, score, profile in betrail_entries
+    }
     betrail_min_match_score = max(0.85, min_match_score)
 
     records: list[AthleteRecord] = []
@@ -347,7 +370,9 @@ def _enrich_records(
                     record.utmb_match_score = utmb_match.match_score
                     record.utmb_profile_url = utmb_match.profile_url
                     if utmb_match.match_score < min_match_score:
-                        record.notes = _append_note(record.notes, "UTMB low-confidence match")
+                        record.notes = _append_note(
+                            record.notes, "UTMB low-confidence match"
+                        )
                     observations.append(
                         _repo_provider_observation(
                             provider="utmb",
@@ -375,9 +400,13 @@ def _enrich_records(
                     )
             except requests.RequestException as exc:
                 if utmb_repo_lookup is not None and utmb_repo_lookup.is_stale:
-                    _apply_stale_repo_fallback(record, provider="utmb", lookup=utmb_repo_lookup)
+                    _apply_stale_repo_fallback(
+                        record, provider="utmb", lookup=utmb_repo_lookup
+                    )
                 else:
-                    record.notes = _append_note(record.notes, f"UTMB error: {exc.__class__.__name__}")
+                    record.notes = _append_note(
+                        record.notes, f"UTMB error: {exc.__class__.__name__}"
+                    )
 
         override = _override_lookup(name, overrides)
         if override is not None:
@@ -393,10 +422,14 @@ def _enrich_records(
                 else None
             )
             if betrail_repo_lookup is not None and not betrail_repo_lookup.is_stale:
-                _apply_provider_snapshot(record, provider="betrail", lookup=betrail_repo_lookup)
+                _apply_provider_snapshot(
+                    record, provider="betrail", lookup=betrail_repo_lookup
+                )
             elif betrail_issue:
                 if betrail_repo_lookup is not None and betrail_repo_lookup.is_stale:
-                    _apply_stale_repo_fallback(record, provider="betrail", lookup=betrail_repo_lookup)
+                    _apply_stale_repo_fallback(
+                        record, provider="betrail", lookup=betrail_repo_lookup
+                    )
                 else:
                     record.notes = _append_note(record.notes, betrail_issue)
             else:
@@ -410,7 +443,10 @@ def _enrich_records(
                     issue=betrail_issue,
                     note_missing=False,
                 )
-                if record.betrail_score is not None and record.betrail_score != previous_score:
+                if (
+                    record.betrail_score is not None
+                    and record.betrail_score != previous_score
+                ):
                     observations.append(
                         _repo_provider_observation(
                             provider="betrail",
@@ -456,7 +492,9 @@ def _enrich_records(
             _apply_provider_snapshot(record, provider="itra", lookup=itra_repo_lookup)
         elif skip_itra:
             if itra_repo_lookup is not None and itra_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="itra", lookup=itra_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="itra", lookup=itra_repo_lookup
+                )
             elif itra_repo_lookup is None:
                 record.notes = _append_note(record.notes, "ITRA skipped by flag")
         elif not _should_lookup_itra_after_utmb(
@@ -464,7 +502,9 @@ def _enrich_records(
             threshold=score_threshold,
         ):
             if itra_repo_lookup is not None and itra_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="itra", lookup=itra_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="itra", lookup=itra_repo_lookup
+                )
             else:
                 record.notes = _append_note(
                     record.notes,
@@ -475,9 +515,13 @@ def _enrich_records(
                 )
         elif itra_block_reason:
             if itra_repo_lookup is not None and itra_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="itra", lookup=itra_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="itra", lookup=itra_repo_lookup
+                )
             else:
-                record.notes = _append_note(record.notes, f"ITRA unavailable: {itra_block_reason}")
+                record.notes = _append_note(
+                    record.notes, f"ITRA unavailable: {itra_block_reason}"
+                )
         else:
             try:
                 itra_match = itra_client.search(name)
@@ -487,9 +531,13 @@ def _enrich_records(
                     record.itra_match_score = itra_match.match_score
                     record.itra_profile_url = itra_match.profile_url
                     if itra_match.match_score < min_match_score:
-                        record.notes = _append_note(record.notes, "ITRA low-confidence match")
+                        record.notes = _append_note(
+                            record.notes, "ITRA low-confidence match"
+                        )
                     if itra_match.itra_score is None:
-                        record.notes = _append_note(record.notes, "ITRA score missing in response")
+                        record.notes = _append_note(
+                            record.notes, "ITRA score missing in response"
+                        )
                     observations.append(
                         _repo_provider_observation(
                             provider="itra",
@@ -523,13 +571,15 @@ def _enrich_records(
                 consecutive_itra_failures += 1
                 error_message = str(exc)
                 if itra_repo_lookup is not None and itra_repo_lookup.is_stale:
-                    _apply_stale_repo_fallback(record, provider="itra", lookup=itra_repo_lookup)
-                else:
-                    record.notes = _append_note(record.notes, f"ITRA unavailable: {error_message}")
-                if consecutive_itra_failures >= max_consecutive_itra_failures:
-                    itra_block_reason = (
-                        f"{error_message} (stopped after {max_consecutive_itra_failures} consecutive failures)"
+                    _apply_stale_repo_fallback(
+                        record, provider="itra", lookup=itra_repo_lookup
                     )
+                else:
+                    record.notes = _append_note(
+                        record.notes, f"ITRA unavailable: {error_message}"
+                    )
+                if consecutive_itra_failures >= max_consecutive_itra_failures:
+                    itra_block_reason = f"{error_message} (stopped after {max_consecutive_itra_failures} consecutive failures)"
 
         betrail_repo_lookup = (
             score_repo.get_provider_snapshot(
@@ -541,10 +591,14 @@ def _enrich_records(
             else None
         )
         if betrail_repo_lookup is not None and not betrail_repo_lookup.is_stale:
-            _apply_provider_snapshot(record, provider="betrail", lookup=betrail_repo_lookup)
+            _apply_provider_snapshot(
+                record, provider="betrail", lookup=betrail_repo_lookup
+            )
         elif betrail_issue:
             if betrail_repo_lookup is not None and betrail_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="betrail", lookup=betrail_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="betrail", lookup=betrail_repo_lookup
+                )
             else:
                 record.notes = _append_note(record.notes, betrail_issue)
         else:
@@ -558,7 +612,10 @@ def _enrich_records(
                 issue=betrail_issue,
                 note_missing=False,
             )
-            if record.betrail_score is not None and record.betrail_score != previous_score:
+            if (
+                record.betrail_score is not None
+                and record.betrail_score != previous_score
+            ):
                 observations.append(
                     _repo_provider_observation(
                         provider="betrail",
@@ -624,7 +681,9 @@ def _build_itra_catalog(
     if skip_itra:
         return [], "ITRA skipped by flag"
     try:
-        return itra_client.fetch_public_catalog_above_threshold(threshold=threshold), None
+        return itra_client.fetch_public_catalog_above_threshold(
+            threshold=threshold
+        ), None
     except (ItraLookupError, requests.RequestException) as exc:
         return [], f"ITRA catalog unavailable: {exc}"
 
@@ -635,7 +694,9 @@ def _build_betrail_catalog(
     threshold: float,
 ) -> tuple[list[BetrailCatalogEntry], str | None]:
     try:
-        return betrail_client.fetch_catalog_above_threshold(threshold=_betrail_threshold(threshold)), None
+        return betrail_client.fetch_catalog_above_threshold(
+            threshold=_betrail_threshold(threshold)
+        ), None
     except (BetrailLookupError, requests.RequestException) as exc:
         return [], f"Betrail catalog unavailable: {exc}"
 
@@ -697,11 +758,13 @@ def _enrich_records_from_catalog(
     need_utmb_catalog = any(
         score_repo is None
         or (
-            (lookup := score_repo.get_provider_snapshot(
-                query_name=name,
-                provider="utmb",
-                lookup_threshold=score_threshold,
-            ))
+            (
+                lookup := score_repo.get_provider_snapshot(
+                    query_name=name,
+                    provider="utmb",
+                    lookup_threshold=score_threshold,
+                )
+            )
             is None
             or lookup.is_stale
         )
@@ -710,11 +773,13 @@ def _enrich_records_from_catalog(
     need_itra_catalog = (not skip_itra) and any(
         score_repo is None
         or (
-            (lookup := score_repo.get_provider_snapshot(
-                query_name=name,
-                provider="itra",
-                lookup_threshold=score_threshold,
-            ))
+            (
+                lookup := score_repo.get_provider_snapshot(
+                    query_name=name,
+                    provider="itra",
+                    lookup_threshold=score_threshold,
+                )
+            )
             is None
             or lookup.is_stale
         )
@@ -723,11 +788,13 @@ def _enrich_records_from_catalog(
     need_betrail_catalog = any(
         score_repo is None
         or (
-            (lookup := score_repo.get_provider_snapshot(
-                query_name=name,
-                provider="betrail",
-                lookup_threshold=betrail_lookup_threshold,
-            ))
+            (
+                lookup := score_repo.get_provider_snapshot(
+                    query_name=name,
+                    provider="betrail",
+                    lookup_threshold=betrail_lookup_threshold,
+                )
+            )
             is None
             or lookup.is_stale
         )
@@ -762,12 +829,28 @@ def _enrich_records_from_catalog(
         provider_issues["itra"] = itra_issue
         provider_issues["betrail"] = betrail_issue
 
-    utmb_entries = [(entry.name, entry.utmb_index, entry.profile_url) for entry in utmb_catalog]
-    itra_entries = [(entry.name, entry.itra_score, entry.profile_url) for entry in itra_catalog]
-    betrail_entries = [(entry.name, entry.betrail_score, entry.profile_url) for entry in betrail_catalog]
-    utmb_exact = {canonical_name(name): (name, score, profile) for name, score, profile in utmb_entries}
-    itra_exact = {canonical_name(name): (name, score, profile) for name, score, profile in itra_entries}
-    betrail_exact = {canonical_name(name): (name, score, profile) for name, score, profile in betrail_entries}
+    utmb_entries = [
+        (entry.name, entry.utmb_index, entry.profile_url) for entry in utmb_catalog
+    ]
+    itra_entries = [
+        (entry.name, entry.itra_score, entry.profile_url) for entry in itra_catalog
+    ]
+    betrail_entries = [
+        (entry.name, entry.betrail_score, entry.profile_url)
+        for entry in betrail_catalog
+    ]
+    utmb_exact = {
+        canonical_name(name): (name, score, profile)
+        for name, score, profile in utmb_entries
+    }
+    itra_exact = {
+        canonical_name(name): (name, score, profile)
+        for name, score, profile in itra_entries
+    }
+    betrail_exact = {
+        canonical_name(name): (name, score, profile)
+        for name, score, profile in betrail_entries
+    }
 
     records: list[AthleteRecord] = []
     for name in names_list:
@@ -787,7 +870,9 @@ def _enrich_records_from_catalog(
             _apply_provider_snapshot(record, provider="utmb", lookup=utmb_repo_lookup)
         elif utmb_issue:
             if utmb_repo_lookup is not None and utmb_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="utmb", lookup=utmb_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="utmb", lookup=utmb_repo_lookup
+                )
             else:
                 record.notes = _append_note(record.notes, utmb_issue)
         else:
@@ -804,7 +889,9 @@ def _enrich_records_from_catalog(
                 record.utmb_match_score = utmb_match.confidence
                 record.utmb_profile_url = utmb_match.profile_url
                 if utmb_match.confidence < 1.0:
-                    record.notes = _append_note(record.notes, "UTMB catalog fuzzy match")
+                    record.notes = _append_note(
+                        record.notes, "UTMB catalog fuzzy match"
+                    )
                 observations.append(
                     _repo_provider_observation(
                         provider="utmb",
@@ -818,7 +905,9 @@ def _enrich_records_from_catalog(
                     )
                 )
             else:
-                record.notes = _append_note(record.notes, "UTMB high-score catalog no match")
+                record.notes = _append_note(
+                    record.notes, "UTMB high-score catalog no match"
+                )
                 observations.append(
                     _repo_provider_observation(
                         provider="utmb",
@@ -846,10 +935,14 @@ def _enrich_records_from_catalog(
                 else None
             )
             if betrail_repo_lookup is not None and not betrail_repo_lookup.is_stale:
-                _apply_provider_snapshot(record, provider="betrail", lookup=betrail_repo_lookup)
+                _apply_provider_snapshot(
+                    record, provider="betrail", lookup=betrail_repo_lookup
+                )
             elif betrail_issue:
                 if betrail_repo_lookup is not None and betrail_repo_lookup.is_stale:
-                    _apply_stale_repo_fallback(record, provider="betrail", lookup=betrail_repo_lookup)
+                    _apply_stale_repo_fallback(
+                        record, provider="betrail", lookup=betrail_repo_lookup
+                    )
                 else:
                     record.notes = _append_note(record.notes, betrail_issue)
             else:
@@ -863,7 +956,10 @@ def _enrich_records_from_catalog(
                     issue=betrail_issue,
                     note_missing=True,
                 )
-                if record.betrail_score is not None and record.betrail_score != previous_score:
+                if (
+                    record.betrail_score is not None
+                    and record.betrail_score != previous_score
+                ):
                     observations.append(
                         _repo_provider_observation(
                             provider="betrail",
@@ -913,7 +1009,9 @@ def _enrich_records_from_catalog(
             _apply_provider_snapshot(record, provider="itra", lookup=itra_repo_lookup)
         elif itra_issue:
             if itra_repo_lookup is not None and itra_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="itra", lookup=itra_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="itra", lookup=itra_repo_lookup
+                )
             else:
                 record.notes = _append_note(record.notes, itra_issue)
         else:
@@ -930,7 +1028,9 @@ def _enrich_records_from_catalog(
                 record.itra_match_score = itra_match.confidence
                 record.itra_profile_url = itra_match.profile_url
                 if itra_match.confidence < 1.0:
-                    record.notes = _append_note(record.notes, "ITRA catalog fuzzy match")
+                    record.notes = _append_note(
+                        record.notes, "ITRA catalog fuzzy match"
+                    )
                 observations.append(
                     _repo_provider_observation(
                         provider="itra",
@@ -944,7 +1044,9 @@ def _enrich_records_from_catalog(
                     )
                 )
             else:
-                record.notes = _append_note(record.notes, "ITRA high-score catalog no match")
+                record.notes = _append_note(
+                    record.notes, "ITRA high-score catalog no match"
+                )
                 observations.append(
                     _repo_provider_observation(
                         provider="itra",
@@ -968,10 +1070,14 @@ def _enrich_records_from_catalog(
             else None
         )
         if betrail_repo_lookup is not None and not betrail_repo_lookup.is_stale:
-            _apply_provider_snapshot(record, provider="betrail", lookup=betrail_repo_lookup)
+            _apply_provider_snapshot(
+                record, provider="betrail", lookup=betrail_repo_lookup
+            )
         elif betrail_issue:
             if betrail_repo_lookup is not None and betrail_repo_lookup.is_stale:
-                _apply_stale_repo_fallback(record, provider="betrail", lookup=betrail_repo_lookup)
+                _apply_stale_repo_fallback(
+                    record, provider="betrail", lookup=betrail_repo_lookup
+                )
             else:
                 record.notes = _append_note(record.notes, betrail_issue)
         else:
@@ -985,7 +1091,10 @@ def _enrich_records_from_catalog(
                 issue=betrail_issue,
                 note_missing=True,
             )
-            if record.betrail_score is not None and record.betrail_score != previous_score:
+            if (
+                record.betrail_score is not None
+                and record.betrail_score != previous_score
+            ):
                 observations.append(
                     _repo_provider_observation(
                         provider="betrail",
@@ -1054,7 +1163,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include participants below threshold in the report.",
     )
-    parser.add_argument("--race-url", help="Race URL where participants can be fetched.")
+    parser.add_argument(
+        "--race-url", help="Race URL where participants can be fetched."
+    )
     parser.add_argument(
         "--competition-name",
         help=(
@@ -1075,8 +1186,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help='Add a participant by name (repeatable), e.g. --participant "Kilian Jornet".',
     )
-    parser.add_argument("--itra-overrides", help="CSV/JSON file with manual name->ITRA score mappings.")
-    parser.add_argument("--skip-itra", action="store_true", help="Disable live ITRA lookups.")
+    parser.add_argument(
+        "--itra-overrides", help="CSV/JSON file with manual name->ITRA score mappings."
+    )
+    parser.add_argument(
+        "--skip-itra", action="store_true", help="Disable live ITRA lookups."
+    )
     parser.add_argument(
         "--score-repo",
         help=(
@@ -1089,7 +1204,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read from the score repo cache without writing refreshed athlete snapshots.",
     )
-    parser.add_argument("--top", type=int, default=100, help="Number of athletes to display.")
+    parser.add_argument(
+        "--top", type=int, default=100, help="Number of athletes to display."
+    )
     parser.add_argument(
         "--sort-by",
         choices=("combined", "utmb", "itra", "betrail"),
@@ -1108,7 +1225,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.85,
         help="Catalog-first only: minimum fuzzy match confidence for catalog matching (0-1).",
     )
-    parser.add_argument("--timeout", type=int, default=15, help="HTTP timeout (seconds).")
+    parser.add_argument(
+        "--timeout", type=int, default=15, help="HTTP timeout (seconds)."
+    )
     parser.add_argument(
         "--utmb-catalog-max-pages",
         type=int,
@@ -1128,7 +1247,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not any((args.race_url, args.participants_file, args.participant)):
-        parser.error("Provide at least one input source: --race-url, --participants-file, or --participant.")
+        parser.error(
+            "Provide at least one input source: --race-url, --participants-file, or --participant."
+        )
 
     overrides: dict[str, float] | None = None
     if args.itra_overrides:
@@ -1149,7 +1270,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     score_repo: AthleteScoreRepo | None = None
-    score_repo_path = Path(args.score_repo).expanduser() if args.score_repo else default_score_repo_path()
+    score_repo_path = (
+        Path(args.score_repo).expanduser()
+        if args.score_repo
+        else default_score_repo_path()
+    )
     if score_repo_path is not None:
         try:
             score_repo = AthleteScoreRepo(score_repo_path)
@@ -1199,7 +1324,11 @@ def main(argv: list[str] | None = None) -> int:
     filtered = (
         records
         if args.include_below_threshold
-        else [record for record in records if _is_above_threshold(record, args.score_threshold)]
+        else [
+            record
+            for record in records
+            if _is_above_threshold(record, args.score_threshold)
+        ]
     )
     ranked = sort_records(filtered, sort_by=args.sort_by)
     ranked_all = sort_records(records, sort_by=args.sort_by)
@@ -1222,7 +1351,11 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(f"Saved full report to {out_path}")
 
-    if score_repo is not None and not args.score_repo_read_only and score_repo_run_id is not None:
+    if (
+        score_repo is not None
+        and not args.score_repo_read_only
+        and score_repo_run_id is not None
+    ):
         score_repo.write_run_summary(
             run_id=score_repo_run_id,
             run_kind="report-refresh",

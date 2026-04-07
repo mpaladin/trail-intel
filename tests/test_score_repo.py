@@ -1,21 +1,27 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import json
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
-from trailintel.score_repo import AthleteScoreRepo, RepoProviderObservation, default_score_repo_path
+from trailintel.score_repo import (
+    AthleteScoreRepo,
+    RepoProviderObservation,
+    default_score_repo_path,
+)
 
 
 class ScoreRepoTests(unittest.TestCase):
     def test_default_score_repo_path_uses_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.toml"
-            config_path.write_text("[score_repo]\npath = \"/tmp/trail-score\"\n", encoding="utf-8")
+            config_path.write_text(
+                '[score_repo]\npath = "/tmp/trail-score"\n', encoding="utf-8"
+            )
 
             with patch.dict(
                 os.environ,
@@ -66,7 +72,9 @@ class ScoreRepoTests(unittest.TestCase):
             self.assertFalse(second.updated)
             self.assertEqual(first_text, second_text)
             self.assertTrue((repo.root / "schema" / "athlete-v1.schema.json").exists())
-            self.assertTrue((repo.root / "schema" / "run-summary-v1.schema.json").exists())
+            self.assertTrue(
+                (repo.root / "schema" / "run-summary-v1.schema.json").exists()
+            )
 
     def test_matched_and_miss_ttls_match_existing_cache_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,13 +110,21 @@ class ScoreRepoTests(unittest.TestCase):
                 source_kind="test",
             )
 
-            utmb_lookup = repo.get_provider_snapshot(query_name="Alice Trail", provider="utmb")
-            itra_lookup = repo.get_provider_snapshot(query_name="Alice Trail", provider="itra")
+            utmb_lookup = repo.get_provider_snapshot(
+                query_name="Alice Trail", provider="utmb"
+            )
+            itra_lookup = repo.get_provider_snapshot(
+                query_name="Alice Trail", provider="itra"
+            )
 
             assert utmb_lookup is not None
             assert itra_lookup is not None
-            self.assertEqual((utmb_lookup.expires_at - utmb_lookup.last_checked_at).days, 60)
-            self.assertEqual((itra_lookup.expires_at - itra_lookup.last_checked_at).days, 7)
+            self.assertEqual(
+                (utmb_lookup.expires_at - utmb_lookup.last_checked_at).days, 60
+            )
+            self.assertEqual(
+                (itra_lookup.expires_at - itra_lookup.last_checked_at).days, 7
+            )
 
     def test_exact_provider_uid_reuses_existing_athlete_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,8 +226,12 @@ class ScoreRepoTests(unittest.TestCase):
             doc_b = dict(doc_template)
             doc_b["identity"] = dict(doc_template["identity"])
             doc_b["identity"]["athlete_id"] = "bb222222222222222222222222222222"
-            path_a = repo_root / "athletes" / "aa" / "aa111111111111111111111111111111.json"
-            path_b = repo_root / "athletes" / "bb" / "bb222222222222222222222222222222.json"
+            path_a = (
+                repo_root / "athletes" / "aa" / "aa111111111111111111111111111111.json"
+            )
+            path_b = (
+                repo_root / "athletes" / "bb" / "bb222222222222222222222222222222.json"
+            )
             path_a.parent.mkdir(parents=True, exist_ok=True)
             path_b.parent.mkdir(parents=True, exist_ok=True)
             path_a.write_text(json.dumps(doc_a, indent=2) + "\n", encoding="utf-8")

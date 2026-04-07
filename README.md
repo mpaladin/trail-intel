@@ -55,6 +55,22 @@ Forecast CLI command:
 trailintel-forecast --help
 ```
 
+## Development
+
+Install the project plus the local CI tooling:
+
+```bash
+pip install -e '.[dev]'
+```
+
+Run the same checks locally that the CI workflow will enforce:
+
+```bash
+ruff check .
+ruff format --check .
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py'
+```
+
 ## Usage
 
 ### Forecast CLI

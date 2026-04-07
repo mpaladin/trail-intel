@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from pathlib import Path
 
 from trailintel.github_pipeline import (
     ReportRequest,
@@ -53,7 +53,9 @@ participant-first
             request,
             published_at=datetime(2026, 4, 4, 10, 30, 45, tzinfo=UTC),
         )
-        self.assertEqual(report_dir, "reports/trail-du-sanglier-2026-le-40-km/20260404-103045")
+        self.assertEqual(
+            report_dir, "reports/trail-du-sanglier-2026-le-40-km/20260404-103045"
+        )
         self.assertEqual(latest_dir, "reports/trail-du-sanglier-2026-le-40-km/latest")
 
     def test_build_race_slug_skips_duplicate_competition_words(self) -> None:
@@ -66,7 +68,9 @@ participant-first
             request,
             published_at=datetime(2026, 4, 4, 10, 30, 45, tzinfo=UTC),
         )
-        self.assertEqual(report_dir, "reports/trail-du-sanglier-2026-le-40-km/20260404-103045")
+        self.assertEqual(
+            report_dir, "reports/trail-du-sanglier-2026-le-40-km/20260404-103045"
+        )
         self.assertEqual(latest_dir, "reports/trail-du-sanglier-2026-le-40-km/latest")
 
     def test_build_cli_args_includes_site_dir(self) -> None:
@@ -106,10 +110,16 @@ participant-first
         snapshot = build_report_snapshot(
             title=request.race_name,
             all_records=[
-                AthleteRecord(input_name="Alice Trail", utmb_index=745.0, itra_score=730.0),
+                AthleteRecord(
+                    input_name="Alice Trail", utmb_index=745.0, itra_score=730.0
+                ),
                 AthleteRecord(input_name="Bob Missing"),
             ],
-            qualified_records=[AthleteRecord(input_name="Alice Trail", utmb_index=745.0, itra_score=730.0)],
+            qualified_records=[
+                AthleteRecord(
+                    input_name="Alice Trail", utmb_index=745.0, itra_score=730.0
+                )
+            ],
             participants_count=2,
             strategy=request.strategy,
             top=100,
@@ -124,7 +134,9 @@ participant-first
             source_dir = export_report_site(
                 snapshot=snapshot,
                 records=[
-                    AthleteRecord(input_name="Alice Trail", utmb_index=745.0, itra_score=730.0),
+                    AthleteRecord(
+                        input_name="Alice Trail", utmb_index=745.0, itra_score=730.0
+                    ),
                     AthleteRecord(input_name="Bob Missing"),
                 ],
                 destination=f"{tmp}/bundle",
@@ -146,11 +158,18 @@ participant-first
                 "https://example.github.io/trailintel-reports/reports/trail-du-test-2026-42-km/latest/index.html",
             )
 
-            reports_index = Path(f"{tmp}/pages/reports/index.html").read_text(encoding="utf-8")
+            reports_index = Path(f"{tmp}/pages/reports/index.html").read_text(
+                encoding="utf-8"
+            )
             root_index = Path(f"{tmp}/pages/index.html").read_text(encoding="utf-8")
             self.assertIn("Trail du Test 2026", reports_index)
-            self.assertIn("trail-du-test-2026-42-km/20260404-123456/index.html", reports_index)
-            self.assertNotIn("reports/trail-du-test-2026-42-km/20260404-123456/index.html", reports_index)
+            self.assertIn(
+                "trail-du-test-2026-42-km/20260404-123456/index.html", reports_index
+            )
+            self.assertNotIn(
+                "reports/trail-du-test-2026-42-km/20260404-123456/index.html",
+                reports_index,
+            )
             self.assertIn("reports/index.html", root_index)
             self.assertIn("forecasts/index.html", root_index)
 

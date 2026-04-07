@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from trailintel.matching import canonical_name, is_strong_person_name_match, match_score, search_name_variants
+from trailintel.matching import (
+    canonical_name,
+    is_strong_person_name_match,
+    match_score,
+    search_name_variants,
+)
 
 
 class MatchingTests(unittest.TestCase):
@@ -21,8 +26,12 @@ class MatchingTests(unittest.TestCase):
         self.assertIn("Aurelien Roche", variants)
 
     def test_strong_name_match_rejects_wrong_surname(self) -> None:
-        self.assertFalse(is_strong_person_name_match("Marianne Coquard", "Marianne Hogan"))
-        self.assertTrue(is_strong_person_name_match("Marianne Coquard", "Marianne Coquard"))
+        self.assertFalse(
+            is_strong_person_name_match("Marianne Coquard", "Marianne Hogan")
+        )
+        self.assertTrue(
+            is_strong_person_name_match("Marianne Coquard", "Marianne Coquard")
+        )
 
 
 if __name__ == "__main__":

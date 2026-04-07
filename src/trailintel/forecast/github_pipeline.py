@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
+import re
+import zipfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, time
 from io import BytesIO
-import json
 from pathlib import Path
-import re
 from urllib.parse import urlparse
-import zipfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from trailintel.forecast.site import build_forecast_slug, publish_forecast_bundle_to_site
+from trailintel.forecast.site import (
+    build_forecast_slug,
+    publish_forecast_bundle_to_site,
+)
 from trailintel.forecast.time_utils import parse_duration
 
 FIELD_ALIASES = {
@@ -104,7 +107,11 @@ def _validate_time(value: str) -> str:
         parsed = time.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(f"Invalid start time: {value}") from exc
-    return parsed.isoformat(timespec="seconds") if parsed.second else parsed.isoformat(timespec="minutes")
+    return (
+        parsed.isoformat(timespec="seconds")
+        if parsed.second
+        else parsed.isoformat(timespec="minutes")
+    )
 
 
 def _validate_timezone(value: str) -> str:
@@ -125,7 +132,9 @@ def parse_issue_form(body: str) -> ForecastRequest:
     if not route_name:
         raise ValueError("Issue form is missing Route Name.")
     if not start_date or not start_time or not timezone_name or not duration:
-        raise ValueError("Issue form is missing Start Date, Start Time, Timezone, or Duration.")
+        raise ValueError(
+            "Issue form is missing Start Date, Start Time, Timezone, or Duration."
+        )
 
     return ForecastRequest(
         route_name=route_name,
@@ -209,7 +218,9 @@ def _extract_single_gpx_from_zip(content: bytes, *, output_dir: str | Path) -> P
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
             gpx_names = [
-                name for name in archive.namelist() if not name.endswith("/") and name.lower().endswith(".gpx")
+                name
+                for name in archive.namelist()
+                if not name.endswith("/") and name.lower().endswith(".gpx")
             ]
             if len(gpx_names) != 1:
                 raise ValueError("ZIP attachment must contain exactly one .gpx file.")
@@ -226,14 +237,24 @@ def download_gpx_source(
     github_token: str | None = None,
 ) -> Path:
     content, content_type = _download_response_content(source_url, github_token)
-    if zipfile.is_zipfile(BytesIO(content)) or looks_like_zip_url(source_url) or "application/zip" in content_type:
+    if (
+        zipfile.is_zipfile(BytesIO(content))
+        or looks_like_zip_url(source_url)
+        or "application/zip" in content_type
+    ):
         return _extract_single_gpx_from_zip(content, output_dir=output_dir)
 
     stripped = content.lstrip()
-    if source_url.lower().endswith(".gpx") or stripped.startswith(b"<?xml") or b"<gpx" in stripped[:256].lower():
+    if (
+        source_url.lower().endswith(".gpx")
+        or stripped.startswith(b"<?xml")
+        or b"<gpx" in stripped[:256].lower()
+    ):
         return _write_gpx_bytes(content, output_dir=output_dir)
 
-    raise ValueError("Downloaded source is neither a GPX file nor a ZIP containing one GPX.")
+    raise ValueError(
+        "Downloaded source is neither a GPX file nor a ZIP containing one GPX."
+    )
 
 
 def publish_forecast_bundle(
@@ -273,7 +294,9 @@ def publish_forecast_bundle(
     )
 
 
-def request_to_payload(request: ForecastRequest, *, source_url: str | None = None) -> dict[str, object]:
+def request_to_payload(
+    request: ForecastRequest, *, source_url: str | None = None
+) -> dict[str, object]:
     payload = asdict(request)
     payload["route_slug"] = request.route_slug
     if source_url is not None:

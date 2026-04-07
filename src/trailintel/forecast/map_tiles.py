@@ -55,7 +55,9 @@ def fetch_basemap(
         headers={"User-Agent": USER_AGENT},
     )
     try:
-        stitched = Image.new("RGB", (tile_count_x * TILE_SIZE, tile_count_y * TILE_SIZE))
+        stitched = Image.new(
+            "RGB", (tile_count_x * TILE_SIZE, tile_count_y * TILE_SIZE)
+        )
         for tile_x in range(min_tile_x, max_tile_x + 1):
             for tile_y in range(min_tile_y, max_tile_y + 1):
                 image = fetch_tile(client, zoom, tile_x, tile_y)
@@ -84,7 +86,9 @@ def fetch_basemap(
     )
 
 
-def fetch_tile(client: httpx.Client, zoom: int, tile_x: int, tile_y: int) -> Image.Image | None:
+def fetch_tile(
+    client: httpx.Client, zoom: int, tile_x: int, tile_y: int
+) -> Image.Image | None:
     try:
         response = client.get(TILE_URL.format(z=zoom, x=tile_x, y=tile_y))
         response.raise_for_status()
