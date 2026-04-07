@@ -38,6 +38,21 @@ class CatalogMatchingTests(unittest.TestCase):
         self.assertEqual(match.matched_name, "Alexandre Lambert")
         self.assertEqual(match.score, 810.0)
 
+    def test_best_catalog_match_rotated_exact_bypasses_guard(self) -> None:
+        exact_lookup = {
+            canonical_name("Aurélien Dunand-Pallaz"): ("Aurélien Dunand-Pallaz", 911.0, None)
+        }
+        match = _best_catalog_match(
+            "DUNAND-PALLAZ Aurélien",
+            entries=[],
+            exact_lookup=exact_lookup,
+            min_match_score=0.95,
+            enforce_strong_name_guard=True,
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match.matched_name, "Aurélien Dunand-Pallaz")
+        self.assertEqual(match.score, 911.0)
+
 
 if __name__ == "__main__":
     unittest.main()
