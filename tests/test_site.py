@@ -48,7 +48,6 @@ class SiteExportTests(unittest.TestCase):
             qualified_records=qualified,
             participants_count=2,
             strategy="participant-first",
-            same_name_mode="highest",
             top=100,
             sort_by="combined",
             race_url="https://example.com/race",
@@ -67,18 +66,27 @@ class SiteExportTests(unittest.TestCase):
             self.assertTrue((out_dir / REPORT_META_FILENAME).exists())
 
             html = (out_dir / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
-            self.assertIn("Score Distribution", html)
-            self.assertIn("Top Athletes", html)
-            self.assertIn("No result on UTMB, ITRA, and Betrail", html)
+            snapshot_json = (out_dir / REPORT_SNAPSHOT_FILENAME).read_text(encoding="utf-8")
+            meta_json = (out_dir / REPORT_META_FILENAME).read_text(encoding="utf-8")
+            self.assertIn("Field Snapshot", html)
+            self.assertIn("Leaderboard", html)
+            self.assertIn("Unmatched Athletes", html)
             self.assertIn("Download CSV", html)
             self.assertIn('href="report.csv"', html)
+            self.assertIn("TrailIntel Pages", html)
+            self.assertIn('href="../../../index.html"', html)
             self.assertIn("Alice Trail", html)
             self.assertIn("Bob Missing", html)
             self.assertIn("open source page", html)
             self.assertIn("https://utmb.world/runner/123.alice-trail", html)
             self.assertIn("https://itra.run/RunnerSpace/Trail.Alice/123", html)
             self.assertIn("https://www.betrail.run/runner/alice.trail/overview", html)
-            self.assertIn("With Betrail", html)
+            self.assertIn("Betrail matches", html)
+            self.assertIn("Published Apr 4, 2026 at 12:00 UTC", html)
+            self.assertNotIn("Same-name mode", html)
+            self.assertNotIn("DuckDB cache", html)
+            self.assertNotIn('"same_name_mode"', snapshot_json)
+            self.assertNotIn('"same_name_mode"', meta_json)
 
     def test_export_report_site_can_use_snapshot_export_rows_without_records(self) -> None:
         snapshot = {
@@ -87,7 +95,6 @@ class SiteExportTests(unittest.TestCase):
             "rows_evaluated": 2,
             "qualified_count": 1,
             "strategy": "participant-first",
-            "same_name_mode": "highest",
             "rows": [{"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "ITRA": "730.0", "Betrail": "74.5", "Combined": "739.0"}],
             "export_rows": [
                 {"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "Betrail": "74.5"},
@@ -164,6 +171,11 @@ class SiteExportTests(unittest.TestCase):
             self.assertNotIn("Trail du Test 2026", forecasts_index)
             self.assertIn("reports/index.html", landing_index)
             self.assertIn("forecasts/index.html", landing_index)
+            self.assertIn("TrailIntel Pages", landing_index)
+            self.assertIn("Published Reports", reports_index)
+            self.assertIn("Published Forecasts", forecasts_index)
+            self.assertIn("Back to home", reports_index)
+            self.assertIn("Back to home", forecasts_index)
             self.assertIn('href="trail-du-test/20260404-120000/index.html"', reports_index)
             self.assertNotIn('href="reports/trail-du-test/20260404-120000/index.html"', reports_index)
             self.assertIn('href="dolomite-dawn/20260701-054500/index.html"', forecasts_index)

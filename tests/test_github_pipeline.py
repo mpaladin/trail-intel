@@ -112,7 +112,6 @@ participant-first
             qualified_records=[AthleteRecord(input_name="Alice Trail", utmb_index=745.0, itra_score=730.0)],
             participants_count=2,
             strategy=request.strategy,
-            same_name_mode="highest",
             top=100,
             sort_by="combined",
             race_url=request.race_url,

@@ -1267,7 +1267,6 @@ def main(argv: list[str] | None = None) -> int:
             qualified_records=filtered,
             participants_count=len(names),
             strategy=args.strategy,
-            same_name_mode="highest",
             top=max(1, args.top),
             sort_by=args.sort_by,
             race_url=args.race_url or "",
