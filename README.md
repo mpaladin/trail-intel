@@ -388,6 +388,22 @@ Forecast request flow:
 The hosted workflow uses anonymous/public ITRA access by default and optionally
 uses `BETRAIL_COOKIE` when configured.
 
+To prepopulate `trail-intel-score` from Betrail rankings, use the manual
+`Seed Score Repo` workflow on GitHub. It runs:
+
+```bash
+trailintel-score seed-betrail --threshold 68 --fill-utmb --fill-itra
+```
+
+against the configured score repo checkout and commits the refreshed athlete
+snapshots back to `trail-intel-score`.
+
+Required secrets for broad Betrail seeding in Actions:
+
+- `BETRAIL_COOKIE`: required, because Betrail is Cloudflare-protected in GitHub Actions
+- `SCORE_REPO_TOKEN` or `PAGES_REPO_TOKEN`: required for cloning/pushing the score repo
+- `ITRA_COOKIE`: optional, only needed if you want authenticated ITRA enrichment during the seed run
+
 ## Backfill Published Pages
 
 To refresh an existing `trail-intel-pages` worktree so historical reports gain
