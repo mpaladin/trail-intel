@@ -19,6 +19,7 @@ from trailintel.participants import (
     load_participants_file,
     normalize_name,
 )
+from trailintel.providers.betrail import BetrailCatalogEntry, BetrailClient, BetrailLookupError
 from trailintel.providers.itra import ItraCatalogEntry, ItraClient, ItraLookupError
 from trailintel.providers.utmb import UtmbCatalogEntry, UtmbClient
 from trailintel.report import export_records, render_table, sort_records
@@ -106,10 +107,15 @@ def _is_strong_catalog_name_match(query_name: str, candidate_name: str) -> bool:
     return is_strong_person_name_match(query_name, candidate_name)
 
 
+def _betrail_threshold(score_threshold: float) -> float:
+    return score_threshold / 10.0
+
+
 def _is_above_threshold(record: AthleteRecord, threshold: float) -> bool:
     return (
         (record.utmb_index is not None and record.utmb_index > threshold)
         or (record.itra_score is not None and record.itra_score > threshold)
+        or (record.betrail_score is not None and record.betrail_score > _betrail_threshold(threshold))
     )
 
 
@@ -132,6 +138,7 @@ def _enrich_records(
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
     itra_cookie: str | None,
+    betrail_cookie: str | None,
     cache_store: LookupCacheStore | None = None,
     use_cache: bool = True,
     force_refresh_cache: bool = False,
@@ -149,6 +156,14 @@ def _enrich_records(
         use_cache=use_cache,
         force_refresh=force_refresh_cache,
     )
+    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_catalog, betrail_issue = _build_betrail_catalog(
+        betrail_client=betrail_client,
+        threshold=score_threshold,
+    )
+    betrail_entries = [(entry.name, entry.betrail_score, entry.profile_url) for entry in betrail_catalog]
+    betrail_exact = {canonical_name(name): (name, score, profile) for name, score, profile in betrail_entries}
+    betrail_min_match_score = max(0.85, min_match_score)
 
     records: list[AthleteRecord] = []
     itra_block_reason: str | None = None
@@ -179,11 +194,29 @@ def _enrich_records(
         if override is not None:
             record.itra_score = override
             record.notes = _append_note(record.notes, "ITRA from override file")
+            _apply_betrail_catalog_match(
+                record,
+                input_name=name,
+                entries=betrail_entries,
+                exact_lookup=betrail_exact,
+                min_match_score=betrail_min_match_score,
+                issue=betrail_issue,
+                note_missing=False,
+            )
             records.append(record)
             continue
 
         if skip_itra:
             record.notes = _append_note(record.notes, "ITRA skipped by flag")
+            _apply_betrail_catalog_match(
+                record,
+                input_name=name,
+                entries=betrail_entries,
+                exact_lookup=betrail_exact,
+                min_match_score=betrail_min_match_score,
+                issue=betrail_issue,
+                note_missing=False,
+            )
             records.append(record)
             continue
 
@@ -198,11 +231,29 @@ def _enrich_records(
                     threshold=score_threshold,
                 ),
             )
+            _apply_betrail_catalog_match(
+                record,
+                input_name=name,
+                entries=betrail_entries,
+                exact_lookup=betrail_exact,
+                min_match_score=betrail_min_match_score,
+                issue=betrail_issue,
+                note_missing=False,
+            )
             records.append(record)
             continue
 
         if itra_block_reason:
             record.notes = _append_note(record.notes, f"ITRA unavailable: {itra_block_reason}")
+            _apply_betrail_catalog_match(
+                record,
+                input_name=name,
+                entries=betrail_entries,
+                exact_lookup=betrail_exact,
+                min_match_score=betrail_min_match_score,
+                issue=betrail_issue,
+                note_missing=False,
+            )
             records.append(record)
             continue
 
@@ -233,6 +284,15 @@ def _enrich_records(
                     f"{error_message} (stopped after {max_consecutive_itra_failures} consecutive failures)"
                 )
 
+        _apply_betrail_catalog_match(
+            record,
+            input_name=name,
+            entries=betrail_entries,
+            exact_lookup=betrail_exact,
+            min_match_score=betrail_min_match_score,
+            issue=betrail_issue,
+            note_missing=False,
+        )
         records.append(record)
 
     return records
@@ -267,6 +327,49 @@ def _build_itra_catalog(
         return [], f"ITRA catalog unavailable: {exc}"
 
 
+def _build_betrail_catalog(
+    betrail_client: BetrailClient,
+    *,
+    threshold: float,
+) -> tuple[list[BetrailCatalogEntry], str | None]:
+    try:
+        return betrail_client.fetch_catalog_above_threshold(threshold=_betrail_threshold(threshold)), None
+    except (BetrailLookupError, requests.RequestException) as exc:
+        return [], f"Betrail catalog unavailable: {exc}"
+
+
+def _apply_betrail_catalog_match(
+    record: AthleteRecord,
+    *,
+    input_name: str,
+    entries: list[tuple[str, float, str | None]],
+    exact_lookup: dict[str, tuple[str, float, str | None]],
+    min_match_score: float,
+    issue: str | None,
+    note_missing: bool,
+) -> None:
+    if issue:
+        record.notes = _append_note(record.notes, issue)
+        return
+
+    betrail_match = _best_catalog_match(
+        input_name,
+        entries=entries,
+        exact_lookup=exact_lookup,
+        min_match_score=min_match_score,
+        enforce_strong_name_guard=True,
+    )
+    if betrail_match:
+        record.betrail_score = betrail_match.score
+        record.betrail_match_name = betrail_match.matched_name
+        record.betrail_match_score = betrail_match.confidence
+        record.betrail_profile_url = betrail_match.profile_url
+        if betrail_match.confidence < 1.0:
+            record.notes = _append_note(record.notes, "Betrail catalog fuzzy match")
+    elif note_missing:
+        record.notes = _append_note(record.notes, "Betrail high-score catalog no match")
+
+
 def _enrich_records_from_catalog(
     names: Iterable[str],
     *,
@@ -274,6 +377,7 @@ def _enrich_records_from_catalog(
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
     itra_cookie: str | None,
+    betrail_cookie: str | None,
     score_threshold: float,
     utmb_catalog_max_pages: int,
     catalog_min_match_score: float,
@@ -281,6 +385,7 @@ def _enrich_records_from_catalog(
     overrides = itra_overrides or {}
     utmb_client = UtmbClient(timeout=timeout)
     itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
+    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
 
     utmb_catalog, utmb_issue = _build_utmb_catalog(
         utmb_client=utmb_client,
@@ -292,11 +397,17 @@ def _enrich_records_from_catalog(
         threshold=score_threshold,
         skip_itra=skip_itra,
     )
+    betrail_catalog, betrail_issue = _build_betrail_catalog(
+        betrail_client=betrail_client,
+        threshold=score_threshold,
+    )
 
     utmb_entries = [(entry.name, entry.utmb_index, entry.profile_url) for entry in utmb_catalog]
     itra_entries = [(entry.name, entry.itra_score, entry.profile_url) for entry in itra_catalog]
+    betrail_entries = [(entry.name, entry.betrail_score, entry.profile_url) for entry in betrail_catalog]
     utmb_exact = {canonical_name(name): (name, score, profile) for name, score, profile in utmb_entries}
     itra_exact = {canonical_name(name): (name, score, profile) for name, score, profile in itra_entries}
+    betrail_exact = {canonical_name(name): (name, score, profile) for name, score, profile in betrail_entries}
 
     records: list[AthleteRecord] = []
     for name in names:
@@ -351,6 +462,16 @@ def _enrich_records_from_catalog(
         else:
             record.notes = _append_note(record.notes, "ITRA high-score catalog no match")
 
+        _apply_betrail_catalog_match(
+            record,
+            input_name=name,
+            entries=betrail_entries,
+            exact_lookup=betrail_exact,
+            min_match_score=catalog_min_match_score,
+            issue=betrail_issue,
+            note_missing=True,
+        )
+
         records.append(record)
 
     return records
@@ -361,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="trailintel",
         description=(
             "Build a TrailIntel top-athlete report from race participants enriched with "
-            "UTMB index and ITRA score."
+            "UTMB index, ITRA score, and Betrail score."
         ),
     )
     parser.add_argument("--race-name", help="Optional race name for report heading.")
@@ -378,7 +499,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--score-threshold",
         type=float,
         default=680.0,
-        help="Only keep athletes with UTMB or ITRA score strictly greater than this value.",
+        help="Only keep athletes with UTMB/ITRA score > threshold, or Betrail score > threshold/10.",
     )
     parser.add_argument(
         "--include-below-threshold",
@@ -414,6 +535,13 @@ def build_parser() -> argparse.ArgumentParser:
             "Can also be provided via ITRA_COOKIE env var."
         ),
     )
+    parser.add_argument(
+        "--betrail-cookie",
+        help=(
+            "Optional raw Cookie header value for Betrail requests when public access is challenged. "
+            "Can also be provided via BETRAIL_COOKIE env var."
+        ),
+    )
     parser.add_argument("--skip-itra", action="store_true", help="Disable live ITRA lookups.")
     parser.add_argument(
         "--no-cache",
@@ -436,7 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top", type=int, default=100, help="Number of athletes to display.")
     parser.add_argument(
         "--sort-by",
-        choices=("combined", "utmb", "itra"),
+        choices=("combined", "utmb", "itra", "betrail"),
         default="combined",
         help="Sort mode for the ranking.",
     )
@@ -493,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     itra_cookie = args.itra_cookie or os.getenv("ITRA_COOKIE")
+    betrail_cookie = args.betrail_cookie or os.getenv("BETRAIL_COOKIE")
     cache_store: LookupCacheStore | None = None
     use_cache = not args.no_cache
     cache_db_path = Path(args.cache_db).expanduser() if args.cache_db else default_cache_db_path()
@@ -511,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip_itra=args.skip_itra,
                 itra_overrides=overrides,
                 itra_cookie=itra_cookie,
+                betrail_cookie=betrail_cookie,
                 score_threshold=args.score_threshold,
                 utmb_catalog_max_pages=max(1, args.utmb_catalog_max_pages),
                 catalog_min_match_score=max(0.0, min(1.0, args.catalog_min_match_score)),
@@ -524,6 +654,7 @@ def main(argv: list[str] | None = None) -> int:
                 skip_itra=args.skip_itra,
                 itra_overrides=overrides,
                 itra_cookie=itra_cookie,
+                betrail_cookie=betrail_cookie,
                 cache_store=cache_store,
                 use_cache=use_cache,
                 force_refresh_cache=args.refresh_cache,

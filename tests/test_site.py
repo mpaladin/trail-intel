@@ -32,6 +32,9 @@ class SiteExportTests(unittest.TestCase):
                 itra_score=730.0,
                 itra_match_name="Alice Trail",
                 itra_profile_url="https://itra.run/RunnerSpace/Trail.Alice/123",
+                betrail_score=74.5,
+                betrail_match_name="Alice Trail",
+                betrail_profile_url="https://www.betrail.run/runner/alice.trail/overview",
             ),
             AthleteRecord(
                 input_name="Bob Missing",
@@ -68,7 +71,7 @@ class SiteExportTests(unittest.TestCase):
             html = (out_dir / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
             self.assertIn("Score Distribution", html)
             self.assertIn("Top Athletes", html)
-            self.assertIn("No result on both UTMB and ITRA", html)
+            self.assertIn("No result on UTMB, ITRA, and Betrail", html)
             self.assertIn("Download CSV", html)
             self.assertIn('href="report.csv"', html)
             self.assertIn("Alice Trail", html)
@@ -76,6 +79,8 @@ class SiteExportTests(unittest.TestCase):
             self.assertIn("open source page", html)
             self.assertIn("https://utmb.world/runner/123.alice-trail", html)
             self.assertIn("https://itra.run/RunnerSpace/Trail.Alice/123", html)
+            self.assertIn("https://www.betrail.run/runner/alice.trail/overview", html)
+            self.assertIn("With Betrail", html)
 
     def test_export_report_site_can_use_snapshot_export_rows_without_records(self) -> None:
         snapshot = {
@@ -85,15 +90,16 @@ class SiteExportTests(unittest.TestCase):
             "qualified_count": 1,
             "strategy": "participant-first",
             "same_name_mode": "highest",
-            "rows": [{"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "ITRA": "730.0", "Combined": "739.0"}],
+            "rows": [{"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "ITRA": "730.0", "Betrail": "74.5", "Combined": "739.0"}],
             "export_rows": [
-                {"Rank": 1, "Athlete": "Alice", "UTMB": "745.0"},
+                {"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "Betrail": "74.5"},
                 {"Rank": 2, "Athlete": "Bob", "UTMB": "-"},
             ],
             "no_result_names": ["Bob"],
             "utmb_scores": [745.0],
             "itra_scores": [730.0],
-            "score_summary": {"participants": 2, "with_utmb": 1, "with_itra": 1, "with_any": 1},
+            "betrail_scores": [74.5],
+            "score_summary": {"participants": 2, "with_utmb": 1, "with_itra": 1, "with_betrail": 1, "with_any": 1},
         }
 
         with tempfile.TemporaryDirectory() as tmp:

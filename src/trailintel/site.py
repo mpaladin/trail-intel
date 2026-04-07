@@ -50,33 +50,42 @@ def _has_itra_match(record: AthleteRecord) -> bool:
     )
 
 
+def _has_betrail_match(record: AthleteRecord) -> bool:
+    return bool(
+        record.betrail_match_name
+        or record.betrail_profile_url
+        or (record.betrail_score is not None)
+    )
+
+
 def compute_no_result_names(records: list[AthleteRecord]) -> list[str]:
     match_presence: dict[str, dict[str, bool]] = {}
     for record in records:
         name = record.input_name.strip()
         if not name:
             continue
-        status = match_presence.setdefault(name, {"utmb": False, "itra": False})
+        status = match_presence.setdefault(name, {"utmb": False, "itra": False, "betrail": False})
         status["utmb"] = status["utmb"] or _has_utmb_match(record)
         status["itra"] = status["itra"] or _has_itra_match(record)
+        status["betrail"] = status["betrail"] or _has_betrail_match(record)
 
     return sorted(
         name
         for name, status in match_presence.items()
-        if not status["utmb"] and not status["itra"]
+        if not status["utmb"] and not status["itra"] and not status["betrail"]
     )
 
 
 def aggregate_scores_by_input(
     records: list[AthleteRecord],
-) -> tuple[list[float], list[float], dict[str, int]]:
+) -> tuple[list[float], list[float], list[float], dict[str, int]]:
     by_input: dict[str, dict[str, float | None]] = {}
     for record in records:
         normalized = _normalize_name(record.input_name).casefold()
         key = normalized or record.input_name.strip().casefold()
         if not key:
             continue
-        bucket = by_input.setdefault(key, {"utmb": None, "itra": None})
+        bucket = by_input.setdefault(key, {"utmb": None, "itra": None, "betrail": None})
         if record.utmb_index is not None:
             bucket["utmb"] = (
                 record.utmb_index
@@ -89,21 +98,29 @@ def aggregate_scores_by_input(
                 if bucket["itra"] is None
                 else max(bucket["itra"], record.itra_score)
             )
+        if record.betrail_score is not None:
+            bucket["betrail"] = (
+                record.betrail_score
+                if bucket["betrail"] is None
+                else max(bucket["betrail"], record.betrail_score)
+            )
 
     utmb_scores = [bucket["utmb"] for bucket in by_input.values() if bucket["utmb"] is not None]
     itra_scores = [bucket["itra"] for bucket in by_input.values() if bucket["itra"] is not None]
+    betrail_scores = [bucket["betrail"] for bucket in by_input.values() if bucket["betrail"] is not None]
     with_any = sum(
         1
         for bucket in by_input.values()
-        if bucket["utmb"] is not None or bucket["itra"] is not None
+        if bucket["utmb"] is not None or bucket["itra"] is not None or bucket["betrail"] is not None
     )
     summary = {
         "participants": len(by_input),
         "with_utmb": len(utmb_scores),
         "with_itra": len(itra_scores),
+        "with_betrail": len(betrail_scores),
         "with_any": with_any,
     }
-    return utmb_scores, itra_scores, summary
+    return utmb_scores, itra_scores, betrail_scores, summary
 
 
 def build_score_histogram(scores: list[float], *, bin_size: int = 50) -> list[dict[str, int | str]]:
@@ -141,11 +158,14 @@ def records_to_rows(records: list[AthleteRecord], *, top: int) -> list[dict[str,
                 "Athlete": record.input_name,
                 "UTMB": _score_fmt(record.utmb_index),
                 "ITRA": _score_fmt(record.itra_score),
+                "Betrail": _score_fmt(record.betrail_score),
                 "Combined": f"{record.combined_score:.1f}",
                 "UTMB Matched Name": record.utmb_match_name or "",
                 "ITRA Matched Name": record.itra_match_name or "",
+                "Betrail Matched Name": record.betrail_match_name or "",
                 "UTMB Profile": record.utmb_profile_url or "",
                 "ITRA Profile": record.itra_profile_url or "",
+                "Betrail Profile": record.betrail_profile_url or "",
                 "Notes": record.notes,
             }
         )
@@ -172,7 +192,7 @@ def build_report_snapshot(
     ranked_all = sort_records(all_records, sort_by=sort_by)
     ranked_qualified = sort_records(qualified_records, sort_by=sort_by)
     no_result_names = compute_no_result_names(all_records)
-    utmb_scores, itra_scores, score_summary = aggregate_scores_by_input(all_records)
+    utmb_scores, itra_scores, betrail_scores, score_summary = aggregate_scores_by_input(all_records)
     score_summary["participants"] = participants_count
     stamp = generated_at or datetime.now(UTC)
     return {
@@ -188,6 +208,7 @@ def build_report_snapshot(
         "no_result_names": no_result_names,
         "utmb_scores": utmb_scores,
         "itra_scores": itra_scores,
+        "betrail_scores": betrail_scores,
         "score_summary": score_summary,
         "cache_status": cache_status,
         "stale_cache_used": stale_cache_used,
@@ -213,8 +234,10 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
     for row in rows:
         utmb_profile = str(row.get("UTMB Profile") or "").strip()
         itra_profile = str(row.get("ITRA Profile") or "").strip()
+        betrail_profile = str(row.get("Betrail Profile") or "").strip()
         utmb_link = _table_link(utmb_profile, "UTMB") if utmb_profile else ""
         itra_link = _table_link(itra_profile, "ITRA") if itra_profile else ""
+        betrail_link = _table_link(betrail_profile, "Betrail") if betrail_profile else ""
         table_rows.append(
             "".join(
                 [
@@ -223,11 +246,14 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
                     f"<td>{html.escape(str(row.get('Athlete', '')))}</td>",
                     f"<td>{html.escape(str(row.get('UTMB', '')))}</td>",
                     f"<td>{html.escape(str(row.get('ITRA', '')))}</td>",
+                    f"<td>{html.escape(str(row.get('Betrail', '')))}</td>",
                     f"<td>{html.escape(str(row.get('Combined', '')))}</td>",
                     f"<td>{html.escape(str(row.get('UTMB Matched Name', '')))}</td>",
                     f"<td>{html.escape(str(row.get('ITRA Matched Name', '')))}</td>",
+                    f"<td>{html.escape(str(row.get('Betrail Matched Name', '')))}</td>",
                     f"<td>{utmb_link}</td>",
                     f"<td>{itra_link}</td>",
+                    f"<td>{betrail_link}</td>",
                     f"<td>{html.escape(str(row.get('Notes', '')))}</td>",
                     "</tr>",
                 ]
@@ -237,8 +263,9 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
         [
             '<div class="table-wrap"><table class="results-table">',
             "<thead><tr>",
-            "<th>Rank</th><th>Athlete</th><th>UTMB</th><th>ITRA</th><th>Combined</th>",
-            "<th>UTMB Matched Name</th><th>ITRA Matched Name</th><th>UTMB Profile</th><th>ITRA Profile</th><th>Notes</th>",
+            "<th>Rank</th><th>Athlete</th><th>UTMB</th><th>ITRA</th><th>Betrail</th><th>Combined</th>",
+            "<th>UTMB Matched Name</th><th>ITRA Matched Name</th><th>Betrail Matched Name</th>",
+            "<th>UTMB Profile</th><th>ITRA Profile</th><th>Betrail Profile</th><th>Notes</th>",
             "</tr></thead><tbody>",
             "".join(table_rows),
             "</tbody></table></div>",
@@ -287,7 +314,7 @@ def _render_histogram(title: str, scores: list[float]) -> str:
 def _render_no_result_section(no_result_names: list[str]) -> str:
     if not no_result_names:
         return (
-            '<section class="panel"><h2>No result on both UTMB and ITRA</h2>'
+            '<section class="panel"><h2>No result on UTMB, ITRA, and Betrail</h2>'
             '<div class="empty-state">All participants matched at least one provider.</div></section>'
         )
 
@@ -296,8 +323,8 @@ def _render_no_result_section(no_result_names: list[str]) -> str:
         for name in no_result_names
     )
     return (
-        '<section class="panel"><h2>No result on both UTMB and ITRA</h2>'
-        f'<p class="section-caption">{len(no_result_names)} participant(s) had no match on either provider.</p>'
+        '<section class="panel"><h2>No result on UTMB, ITRA, and Betrail</h2>'
+        f'<p class="section-caption">{len(no_result_names)} participant(s) had no match on any provider.</p>'
         '<div class="table-wrap compact-table"><table class="results-table">'
         '<thead><tr><th>Athlete</th></tr></thead><tbody>'
         f"{rows}</tbody></table></div></section>"
@@ -353,6 +380,9 @@ def render_report_html(
     itra_scores = snapshot.get("itra_scores", [])
     if not isinstance(itra_scores, list):
         itra_scores = []
+    betrail_scores = snapshot.get("betrail_scores", [])
+    if not isinstance(betrail_scores, list):
+        betrail_scores = []
 
     metrics = {
         "Input participants": int(snapshot.get("participants_count", 0) or 0),
@@ -372,7 +402,8 @@ def render_report_html(
             f'<div class="metric-card"><div class="metric-label">Participants</div><div class="metric-value">{int(score_summary.get("participants", metrics["Input participants"]))}</div></div>',
             f'<div class="metric-card"><div class="metric-label">With UTMB</div><div class="metric-value">{int(score_summary.get("with_utmb", len(utmb_scores)))}</div></div>',
             f'<div class="metric-card"><div class="metric-label">With ITRA</div><div class="metric-value">{int(score_summary.get("with_itra", len(itra_scores)))}</div></div>',
-            f'<div class="metric-card"><div class="metric-label">With Any Score</div><div class="metric-value">{int(score_summary.get("with_any", max(len(utmb_scores), len(itra_scores))))}</div></div>',
+            f'<div class="metric-card"><div class="metric-label">With Betrail</div><div class="metric-value">{int(score_summary.get("with_betrail", len(betrail_scores)))}</div></div>',
+            f'<div class="metric-card"><div class="metric-label">With Any Score</div><div class="metric-value">{int(score_summary.get("with_any", max(len(utmb_scores), len(itra_scores), len(betrail_scores))))}</div></div>',
         ]
     )
 
@@ -472,6 +503,7 @@ def render_report_html(
       <div class="charts">
         {_render_histogram('UTMB Index', [float(value) for value in utmb_scores if value is not None])}
         {_render_histogram('ITRA Score', [float(value) for value in itra_scores if value is not None])}
+        {_render_histogram('Betrail Score', [float(value) for value in betrail_scores if value is not None])}
       </div>
     </section>
 

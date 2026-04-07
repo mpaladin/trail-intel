@@ -13,6 +13,12 @@ class ThresholdTests(unittest.TestCase):
         self.assertFalse(_is_above_threshold(at, 700))
         self.assertTrue(_is_above_threshold(above, 700))
 
+    def test_betrail_threshold_uses_native_100_scale(self) -> None:
+        at = AthleteRecord(input_name="A", betrail_score=68.0)
+        above = AthleteRecord(input_name="B", betrail_score=68.1)
+        self.assertFalse(_is_above_threshold(at, 680))
+        self.assertTrue(_is_above_threshold(above, 680))
+
 
 if __name__ == "__main__":
     unittest.main()

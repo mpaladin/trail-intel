@@ -13,6 +13,8 @@ def sort_records(records: list[AthleteRecord], sort_by: str = "combined") -> lis
         return sorted(records, key=lambda r: r.utmb_index if r.utmb_index is not None else -1, reverse=True)
     if sort_by == "itra":
         return sorted(records, key=lambda r: r.itra_score if r.itra_score is not None else -1, reverse=True)
+    if sort_by == "betrail":
+        return sorted(records, key=lambda r: r.betrail_score if r.betrail_score is not None else -1, reverse=True)
     return sorted(records, key=lambda r: r.combined_score, reverse=True)
 
 
@@ -22,7 +24,7 @@ def _fmt_score(value: float | None) -> str:
 
 def render_table(records: list[AthleteRecord], top: int = 20) -> str:
     shown = records[:top]
-    headers = ["Rank", "Athlete", "UTMB", "ITRA", "Combined", "Notes"]
+    headers = ["Rank", "Athlete", "UTMB", "ITRA", "Betrail", "Combined", "Notes"]
     rows = []
     for idx, athlete in enumerate(shown, start=1):
         rows.append(
@@ -31,6 +33,7 @@ def render_table(records: list[AthleteRecord], top: int = 20) -> str:
                 athlete.input_name,
                 _fmt_score(athlete.utmb_index),
                 _fmt_score(athlete.itra_score),
+                _fmt_score(athlete.betrail_score),
                 f"{athlete.combined_score:.1f}",
                 athlete.notes or "",
             ]
@@ -72,6 +75,10 @@ def export_records(records: list[AthleteRecord], destination: str | Path) -> Pat
         "itra_match_name",
         "itra_match_score",
         "itra_profile_url",
+        "betrail_score",
+        "betrail_match_name",
+        "betrail_match_score",
+        "betrail_profile_url",
         "combined_score",
         "notes",
     ]
@@ -90,6 +97,10 @@ def export_records(records: list[AthleteRecord], destination: str | Path) -> Pat
                     "itra_match_name": record.itra_match_name,
                     "itra_match_score": record.itra_match_score,
                     "itra_profile_url": record.itra_profile_url,
+                    "betrail_score": record.betrail_score,
+                    "betrail_match_name": record.betrail_match_name,
+                    "betrail_match_score": record.betrail_match_score,
+                    "betrail_profile_url": record.betrail_profile_url,
                     "combined_score": record.combined_score,
                     "notes": record.notes,
                 }
