@@ -31,7 +31,6 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - Optional export to CSV, JSON, or a static HTML report bundle
 - Optional manual ITRA overrides file when live ITRA is blocked
 - Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
-- Persistent DuckDB cache for participant-first athlete lookups
 - Optional Git-backed athlete score repo cache (`--score-repo` or `TRAILINTEL_SCORE_REPO`)
 - Separate `trailintel-score` CLI to seed and maintain the score repo
 - Separate `trailintel-forecast` CLI for GPX weather reports
@@ -65,23 +64,6 @@ trailintel-forecast --help
 ```
 
 ## Usage
-
-### Streamlit UI
-
-```bash
-cd /Users/mpaladin/trailintel
-source .venv/bin/activate
-streamlit run src/trailintel/streamlit_app.py
-```
-
-The UI supports:
-- race URL / uploaded file / pasted participants
-- `participant-first` and `catalog-first`
-- same-name handling:
-  - `highest`: keep only the top candidate per same-name group
-  - `keep_all`: keep all same-name candidates (participant-first)
-- strict threshold filtering (`> score`)
-- persistent cache controls (enable/disable, force refresh)
 
 ### Forecast CLI
 
@@ -234,36 +216,19 @@ The HTML page mirrors the main report view with:
 - “no result on any provider” section
 - CSV/JSON download links
 
-## Cache options
-
-By default, `participant-first` lookup results are cached in DuckDB:
-
-- success TTL: 60 days
-- miss TTL: 7 days
-- default DB path resolution order:
-  1. `TRAILINTEL_CACHE_DB`
-  2. config file `TRAILINTEL_CONFIG_FILE` (or `~/.config/trailintel/config.toml`) key `[cache].db_path`
-  3. fallback `~/.cache/trailintel/trailintel_cache.duckdb`
+## Score Repo Cache
 
 `~/.config/trailintel/config.toml` example:
 
 ```toml
-[cache]
-db_path = "/Users/mpaladin/.cache/trailintel/trailintel_cache.duckdb"
-
 [score_repo]
 path = "/Users/mpaladin/trail-intel-score"
 ```
 
 ```bash
-trailintel --participants-file ./participants.csv --no-cache
-trailintel --participants-file ./participants.csv --refresh-cache
-trailintel --participants-file ./participants.csv --cache-db /tmp/trailintel_cache.duckdb
 trailintel --participants-file ./participants.csv --score-repo /path/to/trail-intel-score
 trailintel --participants-file ./participants.csv --score-repo /path/to/trail-intel-score --score-repo-read-only
 ```
-
-## Score Repo Cache
 
 When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
 `trail-intel-score`, TrailIntel:
@@ -282,14 +247,6 @@ trailintel-score seed-betrail \
   --threshold 68 \
   --fill-utmb \
   --fill-itra
-```
-
-Import matched athlete entries from an existing TrailIntel DuckDB cache:
-
-```bash
-trailintel-score import-duckdb \
-  --repo /path/to/trail-intel-score \
-  --cache-db /path/to/trailintel_cache.duckdb
 ```
 
 ## Optional ITRA cookie
@@ -318,10 +275,10 @@ run and keeps your persisted cookie unchanged.
   running and marks missing ITRA values as unavailable.
 - Betrail catalog lookups use the public rankings API and page through results
   in 25-runner batches.
-- When ITRA live lookup fails but stale cache exists, stale cached candidates
-  are used and noted in the report.
+- When live provider lookup fails but a stale score-repo snapshot exists, that
+  snapshot is reused and noted in the report.
 - If repeated ITRA failures continue, refresh/replace your cookie or clear it
-  and rely on anonymous ITRA mode plus overrides/cache.
+  and rely on anonymous ITRA mode plus overrides.
 
 ## GitHub Actions + Pages
 
@@ -383,24 +340,8 @@ Required secrets for score-repo seeding in Actions:
 - `SCORE_REPO_TOKEN` or `PAGES_REPO_TOKEN`: required for cloning/pushing the score repo
 - `ITRA_COOKIE`: optional, only needed if you want authenticated ITRA enrichment during the seed run
 
-## Backfill Published Pages
-
-To refresh an existing `trail-intel-pages` worktree so historical reports gain
-Betrail score/link columns:
-
-```bash
-trailintel-backfill-pages --pages-root /path/to/trail-intel-pages
-```
-
 Published Pages layout:
 
 - race reports: `/reports/<slug>/<timestamp>/` and `/reports/<slug>/latest/`
 - forecasts: `/forecasts/<slug>/<timestamp>/` and `/forecasts/<slug>/latest/`
 - root landing page: links to separate race and forecast indexes
-
-For hosted runs, the workflow also reuses the same DuckDB lookup cache across Actions runs:
-
-- path inside the workflow: `.workflow-cache/trailintel_cache.duckdb`
-- persisted between runs via GitHub Actions cache restore/save
-- success entries are refreshed after 60 days
-- miss entries are refreshed after 7 days

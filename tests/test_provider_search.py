@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from base64 import b64encode
-from datetime import UTC, datetime, timedelta
 import json
-import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import requests
 
-from trailintel.cache_store import LookupCacheStore
 from trailintel.providers.itra import ItraClient, ItraLookupError, ItraMatch
 from trailintel.providers.utmb import UtmbClient
 
@@ -62,65 +59,6 @@ class UtmbProviderSearchTests(unittest.TestCase):
         client = UtmbClient(timeout=5)
         self.assertEqual(client.search_same_name_candidates("Marianne Coquard"), [])
         self.assertIsNone(client.search("Marianne Coquard"))
-
-    @patch("trailintel.providers.utmb.UtmbClient._fetch_runners")
-    def test_cache_hit_avoids_second_network_call(self, mock_fetch_runners) -> None:
-        mock_fetch_runners.return_value = [
-            {"fullname": "John Doe", "ip": 711, "uri": "123.john.doe"},
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LookupCacheStore(f"{tmp}/cache.duckdb")
-            client = UtmbClient(timeout=5, cache_store=store, use_cache=True)
-            first = client.search_same_name_candidates("John Doe")
-            self.assertEqual(len(first), 1)
-            self.assertEqual(mock_fetch_runners.call_count, 1)
-
-            second = client.search_same_name_candidates("John Doe")
-            self.assertEqual(len(second), 1)
-            self.assertEqual(mock_fetch_runners.call_count, 1)
-            self.assertTrue(client.last_lookup_used_cache)
-
-            refresh_client = UtmbClient(
-                timeout=5,
-                cache_store=store,
-                use_cache=True,
-                force_refresh=True,
-            )
-            refresh_client.search_same_name_candidates("John Doe")
-            self.assertEqual(mock_fetch_runners.call_count, 2)
-            store.close()
-
-    @patch("trailintel.providers.utmb.UtmbClient._fetch_runners")
-    def test_miss_is_cached(self, mock_fetch_runners) -> None:
-        mock_fetch_runners.return_value = []
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LookupCacheStore(f"{tmp}/cache.duckdb")
-            client = UtmbClient(timeout=5, cache_store=store, use_cache=True)
-            self.assertEqual(client.search_same_name_candidates("Nobody Runner"), [])
-            self.assertEqual(mock_fetch_runners.call_count, 1)
-            self.assertEqual(client.search_same_name_candidates("Nobody Runner"), [])
-            self.assertEqual(mock_fetch_runners.call_count, 1)
-            store.close()
-
-    @patch("trailintel.providers.utmb.UtmbClient._fetch_runners")
-    def test_stale_fallback_is_used_when_live_errors(self, mock_fetch_runners) -> None:
-        mock_fetch_runners.side_effect = requests.RequestException("network down")
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LookupCacheStore(f"{tmp}/cache.duckdb")
-            store.put_lookup(
-                provider="utmb",
-                query_name="John Doe",
-                auth_scope="public",
-                status="success",
-                payload_json='[{"matched_name":"John Doe","utmb_index":750,"profile_url":"https://utmb.world/runner/123.john.doe","match_score":1.0}]',
-                fetched_at=datetime.now(UTC) - timedelta(days=90),
-            )
-            client = UtmbClient(timeout=5, cache_store=store, use_cache=True)
-            candidates = client.search_same_name_candidates("John Doe")
-            self.assertEqual(len(candidates), 1)
-            self.assertTrue(client.last_lookup_stale_fallback)
-            self.assertEqual(candidates[0].source, "stale_cache")
-            store.close()
 
 
 class ItraProviderSearchTests(unittest.TestCase):
@@ -270,53 +208,6 @@ class ItraProviderSearchTests(unittest.TestCase):
         client = ItraClient(timeout=5)
         self.assertEqual(client.search_same_name_candidates("Marianne Coquard"), [])
         self.assertIsNone(client.search("Marianne Coquard"))
-
-    @patch("trailintel.providers.itra.ItraClient._bootstrap")
-    @patch("trailintel.providers.itra.ItraClient._post_search")
-    def test_cache_hit_avoids_second_network_call(self, mock_post_search, mock_bootstrap) -> None:
-        mock_bootstrap.return_value = None
-
-        def _fake_post(path, *, data, headers):
-            if path.endswith("/findByName"):
-                return []
-            return [{"firstName": "John", "lastName": "Doe", "runnerId": 1, "pi": 740}]
-
-        mock_post_search.side_effect = _fake_post
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LookupCacheStore(f"{tmp}/cache.duckdb")
-            client = ItraClient(timeout=5, cache_store=store, use_cache=True)
-            first = client.search_same_name_candidates("John Doe")
-            self.assertEqual(len(first), 1)
-            initial_calls = mock_post_search.call_count
-
-            second = client.search_same_name_candidates("John Doe")
-            self.assertEqual(len(second), 1)
-            self.assertEqual(mock_post_search.call_count, initial_calls)
-            self.assertTrue(client.last_lookup_used_cache)
-
-            refresh_client = ItraClient(
-                timeout=5,
-                cache_store=store,
-                use_cache=True,
-                force_refresh=True,
-            )
-            refresh_client.search_same_name_candidates("John Doe")
-            self.assertGreater(mock_post_search.call_count, initial_calls)
-            store.close()
-
-    @patch("trailintel.providers.itra.ItraClient._bootstrap")
-    @patch("trailintel.providers.itra.ItraClient._post_search")
-    def test_miss_is_cached(self, mock_post_search, mock_bootstrap) -> None:
-        mock_bootstrap.return_value = None
-        mock_post_search.return_value = []
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LookupCacheStore(f"{tmp}/cache.duckdb")
-            client = ItraClient(timeout=5, cache_store=store, use_cache=True)
-            self.assertEqual(client.search_same_name_candidates("Nobody Runner"), [])
-            initial_calls = mock_post_search.call_count
-            self.assertEqual(client.search_same_name_candidates("Nobody Runner"), [])
-            self.assertEqual(mock_post_search.call_count, initial_calls)
-            store.close()
 
 
 if __name__ == "__main__":

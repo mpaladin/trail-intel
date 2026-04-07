@@ -110,7 +110,6 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
                 "profile_url": "https://utmb.world/runner/999.bob-runner",
             },
         )()
-        mock_utmb.last_lookup_stale_fallback = False
         mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,7 +176,6 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
                 "profile_url": "https://utmb.world/runner/123.read-only",
             },
         )()
-        mock_utmb.last_lookup_stale_fallback = False
         mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -220,7 +218,6 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
                 "profile_url": "https://utmb.world/runner/456.low-runner",
             },
         )()
-        mock_utmb.last_lookup_stale_fallback = False
         mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         with tempfile.TemporaryDirectory() as tmp:

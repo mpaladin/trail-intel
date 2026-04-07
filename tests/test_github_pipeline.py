@@ -35,9 +35,6 @@ Le 40 km
 
 ### Strategy
 participant-first
-
-### Notes
-Run this one first.
 """
         request = parse_issue_form(body)
         self.assertEqual(request.race_name, "Trail du Sanglier 2026")
@@ -45,7 +42,6 @@ Run this one first.
         self.assertEqual(request.score_threshold, 680.0)
         self.assertEqual(request.top, 100)
         self.assertEqual(request.strategy, "participant-first")
-        self.assertEqual(request.notes, "Run this one first.")
 
     def test_build_publish_paths(self) -> None:
         request = ReportRequest(

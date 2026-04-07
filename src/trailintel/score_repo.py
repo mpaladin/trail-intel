@@ -11,11 +11,12 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from trailintel.cache_store import MISS_TTL_DAYS, SUCCESS_TTL_DAYS, default_config_file_path
 from trailintel.matching import canonical_name, is_strong_person_name_match
 
 ATHLETE_SCHEMA_VERSION = "athlete-v1"
 RUN_SCHEMA_VERSION = "run-summary-v1"
+SUCCESS_TTL_DAYS = 60
+MISS_TTL_DAYS = 7
 _PROVIDER_SCORE_SCALES = {
     "utmb": "1000",
     "itra": "1000",
@@ -62,6 +63,13 @@ class RepoWriteResult:
     created: bool
     updated: bool
     provider_updates: int
+
+
+def default_config_file_path() -> Path:
+    configured = os.getenv("TRAILINTEL_CONFIG_FILE")
+    if configured:
+        return Path(configured).expanduser()
+    return Path("~/.config/trailintel/config.toml").expanduser()
 
 
 def default_score_repo_path(config_path: Path | None = None) -> Path | None:

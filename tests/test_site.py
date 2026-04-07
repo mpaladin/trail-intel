@@ -54,8 +54,6 @@ class SiteExportTests(unittest.TestCase):
             race_url="https://example.com/race",
             competition_name="42 km",
             score_threshold=680.0,
-            cache_status="Cache: enabled",
-            stale_cache_used=False,
             generated_at=datetime(2026, 4, 4, 12, 0, tzinfo=UTC),
         )
 

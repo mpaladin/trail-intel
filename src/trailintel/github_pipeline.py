@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
-from pathlib import Path
 import re
-import sys
 import unicodedata
 from urllib.parse import urlparse
 
@@ -22,7 +18,6 @@ FIELD_ALIASES = {
     "score threshold": "score_threshold",
     "top": "top",
     "strategy": "strategy",
-    "notes": "notes",
 }
 
 
@@ -34,7 +29,6 @@ class ReportRequest:
     score_threshold: float = DEFAULT_SCORE_THRESHOLD
     top: int = DEFAULT_TOP
     strategy: str = DEFAULT_STRATEGY
-    notes: str = ""
 
     @property
     def race_slug(self) -> str:
@@ -120,7 +114,6 @@ def parse_issue_form(body: str) -> ReportRequest:
         score_threshold=score_threshold,
         top=top,
         strategy=strategy,
-        notes=sections.get("notes", "").strip(),
     )
 
 
@@ -160,8 +153,8 @@ def build_publish_paths(request: ReportRequest, *, published_at: datetime) -> tu
 def build_cli_args(
     request: ReportRequest,
     *,
-    site_dir: str | Path,
-    score_repo: str | Path | None = None,
+    site_dir: str,
+    score_repo: str | None = None,
     score_repo_read_only: bool = False,
 ) -> list[str]:
     args = [
@@ -189,8 +182,8 @@ def build_cli_args(
 
 def publish_report_bundle(
     *,
-    source_dir: str | Path,
-    pages_root: str | Path,
+    source_dir: str,
+    pages_root: str,
     request: ReportRequest,
     published_at: datetime | None = None,
     base_url: str | None = None,
@@ -235,89 +228,3 @@ def publish_report_bundle(
         csv_url=csv_url,
         json_url=json_url,
     )
-
-
-def _load_issue_body(args: argparse.Namespace) -> str:
-    if args.issue_body_file:
-        return Path(args.issue_body_file).read_text(encoding="utf-8")
-    return args.issue_body
-
-
-def _write_json(path: str | None, payload: dict[str, object]) -> None:
-    if path:
-        Path(path).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    else:
-        json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
-        sys.stdout.write("\n")
-
-
-def _cmd_parse_issue(args: argparse.Namespace) -> int:
-    request = parse_issue_form(_load_issue_body(args))
-    payload = asdict(request)
-    payload["race_slug"] = request.race_slug
-    _write_json(args.output_json, payload)
-    return 0
-
-
-def _cmd_publish_site(args: argparse.Namespace) -> int:
-    request = ReportRequest(
-        race_name=args.race_name,
-        race_url=args.race_url,
-        competition_name=args.competition_name or "",
-        score_threshold=float(args.score_threshold),
-        top=int(args.top),
-        strategy=args.strategy,
-        notes=args.notes or "",
-    )
-    published_at = (
-        datetime.fromisoformat(args.published_at.replace("Z", "+00:00"))
-        if args.published_at
-        else datetime.now(UTC)
-    )
-    result = publish_report_bundle(
-        source_dir=args.source_dir,
-        pages_root=args.pages_root,
-        request=request,
-        published_at=published_at,
-        base_url=args.base_url,
-    )
-    _write_json(args.output_json, asdict(result))
-    return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m trailintel.github_pipeline")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    parse_issue = subparsers.add_parser("parse-issue", help="Parse a GitHub issue form into structured JSON.")
-    parse_issue.add_argument("--issue-body", default="", help="Raw issue body text.")
-    parse_issue.add_argument("--issue-body-file", help="Path to a file containing the issue body.")
-    parse_issue.add_argument("--output-json", help="Optional JSON output path.")
-    parse_issue.set_defaults(func=_cmd_parse_issue)
-
-    publish_site = subparsers.add_parser("publish-site", help="Copy a static report bundle into a Pages worktree.")
-    publish_site.add_argument("--source-dir", required=True)
-    publish_site.add_argument("--pages-root", required=True)
-    publish_site.add_argument("--race-name", required=True)
-    publish_site.add_argument("--race-url", required=True)
-    publish_site.add_argument("--competition-name")
-    publish_site.add_argument("--score-threshold", default=str(DEFAULT_SCORE_THRESHOLD))
-    publish_site.add_argument("--top", default=str(DEFAULT_TOP))
-    publish_site.add_argument("--strategy", default=DEFAULT_STRATEGY)
-    publish_site.add_argument("--notes")
-    publish_site.add_argument("--published-at")
-    publish_site.add_argument("--base-url")
-    publish_site.add_argument("--output-json", help="Optional JSON output path.")
-    publish_site.set_defaults(func=_cmd_publish_site)
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    return int(args.func(args))
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -6,107 +6,12 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-import duckdb
-
 from trailintel.providers.itra import ItraLookupError
-from trailintel.score_cli import import_duckdb_cache, seed_betrail_repo
+from trailintel.score_cli import seed_betrail_repo
 from trailintel.score_repo import AthleteScoreRepo
 
 
 class ScoreCliTests(unittest.TestCase):
-    def test_import_duckdb_cache_imports_success_rows_and_keeps_same_name_duplicates(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cache_path = Path(tmp) / "cache.duckdb"
-            conn = duckdb.connect(str(cache_path))
-            conn.execute(
-                """
-                CREATE TABLE athlete_lookup_cache (
-                    provider TEXT NOT NULL,
-                    query_key TEXT NOT NULL,
-                    auth_scope TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    fetched_at TIMESTAMP NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    updated_at TIMESTAMP NOT NULL,
-                    PRIMARY KEY (provider, query_key, auth_scope)
-                )
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO athlete_lookup_cache (
-                    provider, query_key, auth_scope, status, payload_json, fetched_at, expires_at, updated_at
-                ) VALUES
-                (
-                    'utmb',
-                    'john doe',
-                    'public',
-                    'success',
-                    '[{\"matched_name\":\"John Doe\",\"utmb_index\":710,\"profile_url\":\"https://utmb.world/runner/111.john.doe\",\"match_score\":1.0},{\"matched_name\":\"John Doe\",\"utmb_index\":705,\"profile_url\":\"https://utmb.world/runner/222.john.doe\",\"match_score\":1.0}]',
-                    TIMESTAMP '2026-01-01 00:00:00',
-                    TIMESTAMP '2026-03-02 00:00:00',
-                    TIMESTAMP '2026-01-01 00:00:00'
-                ),
-                (
-                    'itra',
-                    'john doe',
-                    'public',
-                    'success',
-                    '[{\"matched_name\":\"John Doe\",\"itra_score\":700,\"profile_url\":\"https://itra.run/RunnerSpace/Doe.John/9\",\"match_score\":1.0}]',
-                    TIMESTAMP '2026-01-02 00:00:00',
-                    TIMESTAMP '2026-03-03 00:00:00',
-                    TIMESTAMP '2026-01-02 00:00:00'
-                ),
-                (
-                    'utmb',
-                    'low confidence',
-                    'public',
-                    'success',
-                    '[{\"matched_name\":\"Low Confidence\",\"utmb_index\":690,\"profile_url\":\"https://utmb.world/runner/333.low.confidence\",\"match_score\":0.4}]',
-                    TIMESTAMP '2026-01-03 00:00:00',
-                    TIMESTAMP '2026-03-04 00:00:00',
-                    TIMESTAMP '2026-01-03 00:00:00'
-                ),
-                (
-                    'itra',
-                    'missed runner',
-                    'public',
-                    'miss',
-                    '[]',
-                    TIMESTAMP '2026-01-04 00:00:00',
-                    TIMESTAMP '2026-01-11 00:00:00',
-                    TIMESTAMP '2026-01-04 00:00:00'
-                )
-                """
-            )
-            conn.close()
-
-            repo_path = Path(tmp) / "repo"
-            imported_count, summary = import_duckdb_cache(
-                repo_path=repo_path,
-                cache_db_path=cache_path,
-                min_match_score=0.6,
-            )
-
-            repo = AthleteScoreRepo(repo_path)
-            repo.load()
-
-            self.assertEqual(imported_count, 3)
-            self.assertEqual(summary["score_repo"]["rows_scanned"], 3)
-            self.assertEqual(summary["score_repo"]["candidates_skipped_low_confidence"], 1)
-            self.assertEqual(len(list((repo.root / "athletes").glob("*/*.json"))), 3)
-            utmb_docs = []
-            itra_docs = []
-            for athlete_path in (repo.root / "athletes").glob("*/*.json"):
-                text = athlete_path.read_text(encoding="utf-8")
-                if "111.john.doe" in text or "222.john.doe" in text:
-                    utmb_docs.append(text)
-                if "RunnerSpace/Doe.John/9" in text:
-                    itra_docs.append(text)
-            self.assertEqual(len(utmb_docs), 2)
-            self.assertEqual(len(itra_docs), 1)
-
     @patch("trailintel.score_cli.BetrailClient")
     @patch("trailintel.score_cli.ItraClient")
     @patch("trailintel.score_cli.UtmbClient")

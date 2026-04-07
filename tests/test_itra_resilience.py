@@ -90,7 +90,6 @@ class ItraResilienceTests(unittest.TestCase):
         mock_itra = mock_itra_client.return_value
         mock_itra.search.return_value = None
         mock_itra.last_lookup_used_cookie_fallback = True
-        mock_itra.last_lookup_stale_fallback = False
 
         records = _enrich_records(
             ["Alice Martin"],
@@ -163,7 +162,6 @@ class ItraResilienceTests(unittest.TestCase):
         mock_itra = mock_itra_client.return_value
         mock_itra.search.return_value = None
         mock_itra.last_lookup_used_cookie_fallback = False
-        mock_itra.last_lookup_stale_fallback = False
         mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         records = _enrich_records(

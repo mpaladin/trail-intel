@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
-import json
 import os
 from pathlib import Path
 import sys
 
-import duckdb
 import requests
 
 from trailintel.providers.betrail import BetrailClient, BetrailLookupError
@@ -21,11 +18,6 @@ from trailintel.score_repo import (
 )
 
 DEFAULT_MIN_MATCH_SCORE = 0.6
-_PROVIDER_SCORE_KEYS = {
-    "utmb": "utmb_index",
-    "itra": "itra_score",
-    "betrail": "betrail_score",
-}
 
 
 def _observation(
@@ -65,64 +57,6 @@ def _empty_stats() -> dict[str, int]:
         "itra_matches": 0,
         "itra_misses": 0,
     }
-
-
-def _normalize_dt(value: datetime | str | None) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-
-
-def _as_float(value: object) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _import_candidates_from_payload(
-    *,
-    provider: str,
-    payload_json: str,
-) -> list[dict[str, object]]:
-    if not payload_json.strip():
-        return []
-    try:
-        payload = json.loads(payload_json)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(payload, list):
-        return []
-
-    score_key = _PROVIDER_SCORE_KEYS.get(provider, "score")
-    imported: list[dict[str, object]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        matched_name = str(item.get("matched_name", "")).strip()
-        profile_url = str(item.get("profile_url", "")).strip() or None
-        score = _as_float(item.get(score_key))
-        if score is None:
-            score = _as_float(item.get("score"))
-        match_score = _as_float(item.get("match_score"))
-        if not matched_name or score is None:
-            continue
-        imported.append(
-            {
-                "matched_name": matched_name,
-                "profile_url": profile_url,
-                "score": score,
-                "match_score": match_score,
-            }
-        )
-    return imported
 
 
 def seed_betrail_repo(
@@ -284,115 +218,6 @@ def seed_betrail_repo(
     return len(catalog), summary
 
 
-def import_duckdb_cache(
-    *,
-    repo_path: str | Path,
-    cache_db_path: str | Path,
-    min_match_score: float = DEFAULT_MIN_MATCH_SCORE,
-) -> tuple[int, dict[str, object]]:
-    repo = AthleteScoreRepo(repo_path)
-    repo.load()
-    cache_path = Path(cache_db_path).expanduser()
-    if not cache_path.exists():
-        raise RuntimeError(f"DuckDB cache not found: {cache_path}")
-
-    run_id = repo.generate_run_id()
-    conn = duckdb.connect(str(cache_path), read_only=True)
-    try:
-        rows = conn.execute(
-            """
-            SELECT provider, query_key, status, payload_json, fetched_at, updated_at
-            FROM athlete_lookup_cache
-            WHERE status = 'success'
-            ORDER BY COALESCE(updated_at, fetched_at) ASC, provider ASC, query_key ASC
-            """
-        ).fetchall()
-    except Exception as exc:
-        conn.close()
-        raise RuntimeError(f"Failed to read athlete_lookup_cache from {cache_path}: {exc}") from exc
-
-    stats = {
-        "rows_scanned": len(rows),
-        "rows_imported": 0,
-        "athletes_created": 0,
-        "athletes_updated": 0,
-        "provider_updates": 0,
-        "candidates_imported": 0,
-        "candidates_skipped_low_confidence": 0,
-        "candidates_skipped_invalid": 0,
-    }
-    provider_counts: dict[str, int] = {}
-
-    try:
-        for provider, query_key, _status, payload_json, fetched_at, _updated_at in rows:
-            provider_name = str(provider).strip()
-            candidates = _import_candidates_from_payload(
-                provider=provider_name,
-                payload_json=str(payload_json or ""),
-            )
-            if not candidates:
-                stats["candidates_skipped_invalid"] += 1
-                continue
-
-            row_imported = False
-            checked_at = _normalize_dt(fetched_at)
-            for candidate in candidates:
-                match_score = _as_float(candidate.get("match_score"))
-                if match_score is not None and match_score < min_match_score:
-                    stats["candidates_skipped_low_confidence"] += 1
-                    continue
-
-                result = repo.write_athlete_observations(
-                    input_name=str(candidate["matched_name"]),
-                    observations=[
-                        _observation(
-                            provider=provider_name,
-                            status="matched",
-                            matched_name=str(candidate["matched_name"]),
-                            profile_url=str(candidate["profile_url"]) if candidate["profile_url"] else None,
-                            score=float(candidate["score"]),
-                            match_confidence=match_score,
-                            source_run_id=run_id,
-                            persist=True,
-                        )
-                    ],
-                    source_run_id=run_id,
-                    source_kind="import-duckdb",
-                    observed_at=checked_at,
-                )
-                stats["candidates_imported"] += 1
-                if result.created:
-                    stats["athletes_created"] += 1
-                if result.updated:
-                    stats["athletes_updated"] += 1
-                stats["provider_updates"] += result.provider_updates
-                provider_counts[provider_name] = provider_counts.get(provider_name, 0) + 1
-                row_imported = True
-
-            if row_imported:
-                stats["rows_imported"] += 1
-    finally:
-        conn.close()
-
-    summary = {
-        "cache_db_path": str(cache_path),
-        "min_match_score": min_match_score,
-        "score_repo": {
-            "path": str(repo.root),
-            **stats,
-        },
-        "providers": provider_counts,
-        "import_mode": "success-only",
-        "notes": "DuckDB misses are query-scoped and are not imported as athlete docs.",
-    }
-    repo.write_run_summary(
-        run_id=run_id,
-        run_kind="import-duckdb",
-        summary=summary,
-    )
-    return stats["candidates_imported"], summary
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="trailintel-score",
@@ -416,24 +241,6 @@ def build_parser() -> argparse.ArgumentParser:
     seed_betrail.add_argument("--fill-utmb", action="store_true")
     seed_betrail.add_argument("--fill-itra", action="store_true")
     seed_betrail.add_argument("--itra-cookie")
-
-    import_duckdb = subparsers.add_parser(
-        "import-duckdb",
-        help="Import matched athlete entries from a TrailIntel DuckDB lookup cache.",
-    )
-    import_duckdb.add_argument(
-        "--repo",
-        help=(
-            "Path to the local score repo checkout "
-            "(default: TRAILINTEL_SCORE_REPO env var, then config [score_repo].path)."
-        ),
-    )
-    import_duckdb.add_argument(
-        "--cache-db",
-        required=True,
-        help="Path to the TrailIntel DuckDB cache file to import from.",
-    )
-    import_duckdb.add_argument("--min-match-score", type=float, default=DEFAULT_MIN_MATCH_SCORE)
     return parser
 
 
@@ -446,36 +253,26 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Provide --repo or configure TRAILINTEL_SCORE_REPO / [score_repo].path.")
 
     try:
-        if args.command == "seed-betrail":
-            imported_count, summary = seed_betrail_repo(
-                repo_path=repo_path,
-                threshold=float(args.threshold),
-                timeout=args.timeout,
-                fill_utmb=bool(args.fill_utmb),
-                fill_itra=bool(args.fill_itra),
-                itra_cookie=args.itra_cookie or os.getenv("ITRA_COOKIE"),
-            )
-        elif args.command == "import-duckdb":
-            imported_count, summary = import_duckdb_cache(
-                repo_path=repo_path,
-                cache_db_path=args.cache_db,
-                min_match_score=max(0.0, min(1.0, float(args.min_match_score))),
-            )
-        else:
+        if args.command != "seed-betrail":
             parser.error(f"Unsupported command: {args.command}")
+        imported_count, summary = seed_betrail_repo(
+            repo_path=repo_path,
+            threshold=float(args.threshold),
+            timeout=args.timeout,
+            fill_utmb=bool(args.fill_utmb),
+            fill_itra=bool(args.fill_itra),
+            itra_cookie=args.itra_cookie or os.getenv("ITRA_COOKIE"),
+        )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    if args.command == "seed-betrail":
-        print(f"Seeded {imported_count} Betrail athletes into {repo_path}")
-        issues = summary.get("provider_issues", {})
-        if isinstance(issues, dict):
-            active_issues = {key: value for key, value in issues.items() if value}
-            if active_issues:
-                print(f"Provider issues: {active_issues}")
-    else:
-        print(f"Imported {imported_count} cached athlete entries into {repo_path}")
+    print(f"Seeded {imported_count} Betrail athletes into {repo_path}")
+    issues = summary.get("provider_issues", {})
+    if isinstance(issues, dict):
+        active_issues = {key: value for key, value in issues.items() if value}
+        if active_issues:
+            print(f"Provider issues: {active_issues}")
     return 0
 
 
