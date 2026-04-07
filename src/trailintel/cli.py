@@ -85,10 +85,11 @@ def _best_catalog_match(
     min_match_score: float,
     enforce_strong_name_guard: bool = False,
 ) -> CatalogMatch | None:
-    exact = exact_lookup.get(canonical_name(input_name))
-    if exact:
-        name, score, profile_url = exact
-        return CatalogMatch(confidence=1.0, matched_name=name, profile_url=profile_url, score=score)
+    for key in _catalog_exact_lookup_keys(input_name):
+        exact = exact_lookup.get(key)
+        if exact:
+            name, score, profile_url = exact
+            return CatalogMatch(confidence=1.0, matched_name=name, profile_url=profile_url, score=score)
 
     best: tuple[str, float, str | None] | None = None
     best_confidence = 0.0
@@ -108,6 +109,23 @@ def _best_catalog_match(
         score=best[1],
         profile_url=best[2],
     )
+
+
+def _catalog_exact_lookup_keys(input_name: str) -> list[str]:
+    canonical = canonical_name(input_name)
+    if not canonical:
+        return []
+
+    tokens = canonical.split()
+    keys = [canonical]
+    if len(tokens) >= 2:
+        rotated_first = " ".join(tokens[1:] + tokens[:1])
+        rotated_last = " ".join(tokens[-1:] + tokens[:-1])
+        if rotated_first and rotated_first not in keys:
+            keys.append(rotated_first)
+        if rotated_last and rotated_last not in keys:
+            keys.append(rotated_last)
+    return keys
 
 
 def _is_strong_catalog_name_match(query_name: str, candidate_name: str) -> bool:

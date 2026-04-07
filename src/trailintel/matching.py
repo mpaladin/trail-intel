@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -26,6 +27,7 @@ def search_name_variants(text: str) -> list[str]:
     return variants
 
 
+@lru_cache(maxsize=100_000)
 def canonical_name(text: str) -> str:
     # Normalize accents and punctuation to improve exact matching stability.
     no_marks = deaccent_text(text)
@@ -33,6 +35,7 @@ def canonical_name(text: str) -> str:
     return " ".join(alnum.lower().split())
 
 
+@lru_cache(maxsize=100_000)
 def name_tokens(text: str) -> list[str]:
     canonical = canonical_name(text)
     if not canonical:
