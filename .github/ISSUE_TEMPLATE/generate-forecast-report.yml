@@ -8,7 +8,7 @@ body:
     attributes:
       label: Route Name
       description: Friendly title shown on the published forecast page.
-      placeholder: Dolomites Sunrise Recon
+      placeholder: "Dolomites Sunrise Recon"
     validations:
       required: true
   - type: input
@@ -16,13 +16,13 @@ body:
     attributes:
       label: GPX URL
       description: Optional direct URL to a `.gpx` or `.zip` containing exactly one GPX. Leave blank if you will attach one ZIP in Notes.
-      placeholder: https://example.com/route.gpx
+      placeholder: "https://example.com/route.gpx"
   - type: input
     id: start_date
     attributes:
       label: Start Date
       description: Local ride date in `YYYY-MM-DD` format.
-      placeholder: 2026-07-15
+      placeholder: "2026-07-15"
     validations:
       required: true
   - type: input
@@ -30,7 +30,7 @@ body:
     attributes:
       label: Start Time
       description: Local ride start time in `HH:MM` or `HH:MM:SS` format.
-      placeholder: 06:30
+      placeholder: "06:30"
     validations:
       required: true
   - type: input
@@ -38,7 +38,7 @@ body:
     attributes:
       label: Timezone
       description: IANA timezone name used to interpret the start date and time.
-      value: Europe/Rome
+      value: "Europe/Rome"
     validations:
       required: true
   - type: input
@@ -54,4 +54,4 @@ body:
     attributes:
       label: Notes
       description: Optional notes. If `GPX URL` is blank, drag one ZIP attachment containing exactly one GPX into this field.
-      placeholder: Forecast for a sunrise recon. ZIP attachment is included here if no GPX URL is provided.
+      placeholder: "Forecast for a sunrise recon. ZIP attachment is included here if no GPX URL is provided."
