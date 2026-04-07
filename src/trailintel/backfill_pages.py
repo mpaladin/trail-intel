@@ -95,6 +95,21 @@ def _load_records(bundle_dir: Path) -> list[AthleteRecord]:
     return records
 
 
+def _normalize_notes_segments(notes: str) -> list[str]:
+    return [segment.strip() for segment in notes.split(";") if segment.strip()]
+
+
+def _clean_backfilled_betrail_notes(record: AthleteRecord) -> None:
+    cleaned: list[str] = []
+    for segment in _normalize_notes_segments(record.notes):
+        if segment.startswith("Betrail catalog unavailable:"):
+            continue
+        if record.betrail_score is not None and segment == "Betrail high-score catalog no match":
+            continue
+        cleaned.append(segment)
+    record.notes = "; ".join(cleaned)
+
+
 def _parse_iso_timestamp(value: object) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -193,6 +208,7 @@ def backfill_pages(
                 issue=None,
                 note_missing=False,
             )
+            _clean_backfilled_betrail_notes(record)
 
         sort_by = str(existing_snapshot.get("sort_by", "combined") or "combined")
         ranked_all = sort_records(records, sort_by=sort_by)
