@@ -161,6 +161,8 @@ def build_cli_args(
     request: ReportRequest,
     *,
     site_dir: str | Path,
+    score_repo: str | Path | None = None,
+    score_repo_read_only: bool = False,
 ) -> list[str]:
     args = [
         "--race-name",
@@ -178,6 +180,10 @@ def build_cli_args(
     ]
     if request.competition_name:
         args.extend(["--competition-name", request.competition_name])
+    if score_repo:
+        args.extend(["--score-repo", str(score_repo)])
+    if score_repo_read_only:
+        args.append("--score-repo-read-only")
     return args
 
 
