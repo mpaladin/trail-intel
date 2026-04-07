@@ -38,8 +38,12 @@ class BackfillPagesTests(unittest.TestCase):
                 input_name="Alice Trail",
                 utmb_index=745.0,
                 itra_score=730.0,
+                notes="Betrail catalog unavailable: Betrail request blocked by Cloudflare.",
             ),
-            AthleteRecord(input_name="Bob Missing"),
+            AthleteRecord(
+                input_name="Bob Missing",
+                notes="UTMB not found; Betrail catalog unavailable: Betrail request blocked by Cloudflare.",
+            ),
         ]
         snapshot = build_report_snapshot(
             title="Trail du Test 2026",
@@ -92,6 +96,8 @@ class BackfillPagesTests(unittest.TestCase):
                     report_rows[0]["betrail_profile_url"],
                     "https://www.betrail.run/runner/alice.trail/overview",
                 )
+                self.assertEqual(report_rows[0]["notes"], "")
+                self.assertEqual(report_rows[1]["notes"], "UTMB not found")
 
                 snapshot_data = json.loads((bundle_dir / REPORT_SNAPSHOT_FILENAME).read_text(encoding="utf-8"))
                 self.assertEqual(snapshot_data["betrail_scores"], [74.5])
@@ -99,6 +105,7 @@ class BackfillPagesTests(unittest.TestCase):
 
                 html = (bundle_dir / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
                 self.assertIn("https://www.betrail.run/runner/alice.trail/overview", html)
+                self.assertNotIn("Betrail request blocked by Cloudflare", html)
 
                 meta = json.loads((bundle_dir / REPORT_META_FILENAME).read_text(encoding="utf-8"))
                 self.assertEqual(meta["published_at"], "2026-04-04T12:34:56+00:00")
