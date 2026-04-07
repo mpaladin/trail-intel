@@ -322,24 +322,6 @@ Forecast request flow:
    - one ZIP attachment containing exactly one GPX in `Notes`
 3. The workflow downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
 
-The hosted workflow uses anonymous/public Betrail access and optionally
-authenticated ITRA access when `ITRA_COOKIE` is configured.
-
-To prepopulate `trail-intel-score` from Betrail rankings, use the manual
-`Seed Score Repo` workflow on GitHub. It runs:
-
-```bash
-trailintel-score seed-betrail --threshold 68 --fill-utmb --fill-itra
-```
-
-against the configured score repo checkout and commits the refreshed athlete
-snapshots back to `trail-intel-score`.
-
-Required secrets for score-repo seeding in Actions:
-
-- `SCORE_REPO_TOKEN` or `PAGES_REPO_TOKEN`: required for cloning/pushing the score repo
-- `ITRA_COOKIE`: optional, only needed if you want authenticated ITRA enrichment during the seed run
-
 Published Pages layout:
 
 - race reports: `/reports/<slug>/<timestamp>/` and `/reports/<slug>/latest/`
