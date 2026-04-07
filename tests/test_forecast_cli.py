@@ -53,6 +53,7 @@ class ForecastCliTests(unittest.TestCase):
                 wind_max_kph=18.0,
                 precipitation_total_mm=0.4,
                 wettest_time=datetime(2026, 3, 28, 9, 0, tzinfo=UTC),
+                wettest_precipitation_mm=0.4,
                 wettest_probability_pct=60.0,
             )
             fake_result = ForecastBundleResult(
@@ -81,6 +82,7 @@ class ForecastCliTests(unittest.TestCase):
                 )
 
         self.assertEqual(result.exit_code, 0)
+        self.assertIn("(0.4 mm, 60% chance)", result.output)
         self.assertIn("Saved image", result.output)
         self.assertIn("Saved site bundle", result.output)
 

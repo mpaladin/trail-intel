@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import requests
 
-from trailintel.providers.itra import ItraClient, ItraLookupError, ItraMatch
+from trailintel.providers.itra import ItraClient, ItraLookupError
 from trailintel.providers.utmb import UtmbClient
 
 
@@ -103,43 +103,6 @@ class ItraProviderSearchTests(unittest.TestCase):
             matches[0].profile_url,
             "https://itra.run/RunnerSpace/PALADIN.Massimo/921767",
         )
-
-    @patch("trailintel.providers.itra.ItraClient._search_candidates")
-    def test_cookie_mode_retries_anonymous_on_auth_failure(self, mock_search_candidates) -> None:
-        mock_search_candidates.side_effect = [
-            ItraLookupError("ITRA lookup failed: /api/runner/find HTTP 400"),
-            [
-                ItraMatch(
-                    query_name="John Doe",
-                    matched_name="John Doe",
-                    itra_score=741.0,
-                    profile_url="https://itra.run/RunnerSpace/Doe.John/1",
-                    match_score=1.0,
-                    raw={},
-                )
-            ],
-        ]
-
-        client = ItraClient(timeout=5, cookie="session=broken")
-        matches = client.search_same_name_candidates("John Doe")
-
-        self.assertEqual(len(matches), 1)
-        self.assertEqual(matches[0].itra_score, 741.0)
-        self.assertTrue(client.last_lookup_used_cookie_fallback)
-        self.assertEqual(mock_search_candidates.call_count, 2)
-
-    @patch("trailintel.providers.itra.ItraClient._search_candidates")
-    def test_no_cookie_mode_does_not_retry_anonymous(self, mock_search_candidates) -> None:
-        mock_search_candidates.side_effect = ItraLookupError(
-            "ITRA lookup failed: /api/runner/findByName HTTP 403"
-        )
-
-        client = ItraClient(timeout=5, cookie=None)
-        with self.assertRaises(ItraLookupError):
-            client.search_same_name_candidates("John Doe")
-
-        self.assertFalse(client.last_lookup_used_cookie_fallback)
-        self.assertEqual(mock_search_candidates.call_count, 1)
 
     @patch("trailintel.providers.itra.ItraClient._bootstrap")
     @patch("trailintel.providers.itra.ItraClient._post_search")

@@ -54,13 +54,10 @@ class ItraClient:
     def __init__(
         self,
         timeout: int = 15,
-        cookie: str | None = None,
     ) -> None:
         self.timeout = timeout
         self.session = requests.Session()
         self._csrf_token: str | None = None
-        self._cookie = cookie
-        self.last_lookup_used_cookie_fallback = False
         self.session.headers.update(
             {
                 "User-Agent": (
@@ -71,8 +68,6 @@ class ItraClient:
                 "Referer": f"{self.BASE_URL}{self.RANKING_PAGE}",
             }
         )
-        if cookie:
-            self.session.headers.update({"Cookie": cookie})
 
     @staticmethod
     def _get_string(item: dict[str, Any], *keys: str) -> str:
@@ -347,42 +342,10 @@ class ItraClient:
             )
         return candidates
 
-    def _should_try_anonymous_fallback(self, error: ItraLookupError) -> bool:
-        if not self._cookie:
-            return False
-        message = str(error).casefold()
-        if "cloudfront" in message or "request blocked" in message:
-            return True
-        if "csrf" in message:
-            return True
-        if "/api/runner/find" in message and any(
-            f"http {status}" in message for status in (400, 401, 403, 429, 503)
-        ):
-            return True
-        return False
-
     def search_same_name_candidates(self, name: str) -> list[ItraMatch]:
-        self.last_lookup_used_cookie_fallback = False
-
-        try:
-            candidates = self._search_candidates(name)
-            if not candidates:
-                return []
-        except ItraLookupError as exc:
-            recovered_with_anonymous = False
-            if self._should_try_anonymous_fallback(exc):
-                anonymous_client = ItraClient(timeout=self.timeout, cookie=None)
-                try:
-                    candidates = anonymous_client._search_candidates(name)
-                    self.last_lookup_used_cookie_fallback = True
-                    recovered_with_anonymous = True
-                    if not candidates:
-                        return []
-                except ItraLookupError as fallback_exc:
-                    exc = ItraLookupError(f"{exc}; anonymous retry failed: {fallback_exc}")
-
-            if not recovered_with_anonymous:
-                raise exc
+        candidates = self._search_candidates(name)
+        if not candidates:
+            return []
 
         strong_candidates = [
             item for item in candidates if is_strong_person_name_match(name, item.matched_name)
