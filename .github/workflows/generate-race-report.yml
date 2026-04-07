@@ -157,8 +157,12 @@ jobs:
       PAGES_REPO: ${{ vars.PAGES_REPO }}
       PAGES_BRANCH: ${{ vars.PAGES_BRANCH }}
       PAGES_BASE_URL: ${{ vars.PAGES_BASE_URL }}
+      SCORE_REPO: ${{ vars.SCORE_REPO }}
+      SCORE_REPO_BRANCH: ${{ vars.SCORE_REPO_BRANCH }}
       BETRAIL_COOKIE: ${{ secrets.BETRAIL_COOKIE }}
+      SCORE_REPO_TOKEN: ${{ secrets.SCORE_REPO_TOKEN }}
       TRAILINTEL_CACHE_DB: ${{ github.workspace }}/.workflow-cache/trailintel_cache.duckdb
+      TRAILINTEL_SCORE_REPO: ${{ github.workspace }}/score-repo
     outputs:
       publish_json: ${{ steps.publish.outputs.publish_json }}
     steps:
@@ -180,6 +184,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
+
+      - name: Clone score repo cache
+        env:
+          PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
+        run: |
+          score_repo="${SCORE_REPO:-mpaladin/trail-intel-score}"
+          branch="${SCORE_REPO_BRANCH:-main}"
+          token="${SCORE_REPO_TOKEN:-$PAGES_REPO_TOKEN}"
+          if [ -z "$token" ]; then
+            echo "Missing SCORE_REPO_TOKEN or fallback PAGES_REPO_TOKEN." >&2
+            exit 1
+          fi
+          git clone --depth 1 --branch "$branch" "https://x-access-token:${token}@github.com/${score_repo}.git" "$TRAILINTEL_SCORE_REPO"
 
       - name: Build static report bundle
         run: |
@@ -203,9 +220,37 @@ jobs:
               strategy=payload.get("strategy", "participant-first"),
               notes=payload.get("notes", ""),
           )
-          args = [sys.executable, "-m", "trailintel.cli", *build_cli_args(request, site_dir=Path("dist/site"))]
+          args = [
+              sys.executable,
+              "-m",
+              "trailintel.cli",
+              *build_cli_args(
+                  request,
+                  site_dir=Path("dist/site"),
+                  score_repo=Path(os.environ["TRAILINTEL_SCORE_REPO"]),
+              ),
+          ]
           subprocess.run(args, check=True)
           PY
+
+      - name: Commit and push score repo updates
+        env:
+          PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
+        run: |
+          score_repo="${SCORE_REPO:-mpaladin/trail-intel-score}"
+          branch="${SCORE_REPO_BRANCH:-main}"
+          token="${SCORE_REPO_TOKEN:-$PAGES_REPO_TOKEN}"
+          cd "$TRAILINTEL_SCORE_REPO"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No score repo changes to commit."
+            exit 0
+          fi
+          git commit -m "Refresh score cache: ${{ needs.prepare.outputs.race_name }}"
+          git remote set-url origin "https://x-access-token:${token}@github.com/${score_repo}.git"
+          git push origin "$branch"
 
       - uses: actions/upload-artifact@v7
         with:

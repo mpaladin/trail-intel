@@ -85,6 +85,22 @@ Run this one first.
         self.assertIn("--competition-name", args)
         self.assertIn("Le 40 km", args)
 
+    def test_build_cli_args_includes_score_repo_flags(self) -> None:
+        request = ReportRequest(
+            race_name="Trail du Sanglier 2026",
+            race_url="https://example.com/race",
+        )
+        args = build_cli_args(
+            request,
+            site_dir="dist/site",
+            score_repo="/tmp/trail-intel-score",
+            score_repo_read_only=True,
+        )
+
+        self.assertIn("--score-repo", args)
+        self.assertIn("/tmp/trail-intel-score", args)
+        self.assertIn("--score-repo-read-only", args)
+
     def test_publish_report_bundle_updates_latest_and_index(self) -> None:
         request = ReportRequest(
             race_name="Trail du Test 2026",

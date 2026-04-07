@@ -33,6 +33,8 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
 - Optional Betrail cookie fallback (`--betrail-cookie` or `BETRAIL_COOKIE`)
 - Persistent DuckDB cache for participant-first athlete lookups
+- Optional Git-backed athlete score repo cache (`--score-repo` or `TRAILINTEL_SCORE_REPO`)
+- Separate `trailintel-score` CLI to seed and maintain the score repo
 - Separate `trailintel-forecast` CLI for GPX weather reports
 - Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
 
@@ -49,6 +51,12 @@ Primary CLI command:
 
 ```bash
 trailintel --help
+```
+
+Score repo maintenance CLI:
+
+```bash
+trailintel-score --help
 ```
 
 Forecast CLI command:
@@ -208,6 +216,7 @@ trailintel --participants-file ./participants.csv --output report.csv
 trailintel --participants-file ./participants.csv --output report.json --sort-by combined
 trailintel --participants-file ./participants.csv --sort-by betrail
 trailintel --participants-file ./participants.csv --site-dir ./dist/report-site
+trailintel --participants-file ./participants.csv --score-repo /path/to/trail-intel-score
 ```
 
 `--site-dir` writes a static bundle containing:
@@ -242,12 +251,46 @@ By default, `participant-first` lookup results are cached in DuckDB:
 ```toml
 [cache]
 db_path = "/Users/mpaladin/.cache/trailintel/trailintel_cache.duckdb"
+
+[score_repo]
+path = "/Users/mpaladin/trail-intel-score"
 ```
 
 ```bash
 trailintel --participants-file ./participants.csv --no-cache
 trailintel --participants-file ./participants.csv --refresh-cache
 trailintel --participants-file ./participants.csv --cache-db /tmp/trailintel_cache.duckdb
+trailintel --participants-file ./participants.csv --score-repo /path/to/trail-intel-score
+trailintel --participants-file ./participants.csv --score-repo /path/to/trail-intel-score --score-repo-read-only
+```
+
+## Score Repo Cache
+
+When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
+`trail-intel-score`, TrailIntel:
+
+- reads athlete snapshots from the repo before making live provider requests
+- refreshes missing or stale provider data lazily
+- writes back encountered athletes, including below-threshold runners
+- stores one JSON file per athlete under `athletes/<shard>/<athlete_id>.json`
+- writes run summaries under `runs/<year>/`
+
+Seed the repo from Betrail athletes above `68.0` and optionally fill UTMB/ITRA:
+
+```bash
+trailintel-score seed-betrail \
+  --repo /path/to/trail-intel-score \
+  --threshold 68 \
+  --fill-utmb \
+  --fill-itra
+```
+
+Import matched athlete entries from an existing TrailIntel DuckDB cache:
+
+```bash
+trailintel-score import-duckdb \
+  --repo /path/to/trail-intel-score \
+  --cache-db /path/to/trailintel_cache.duckdb
 ```
 
 ## Optional ITRA cookie
@@ -316,8 +359,12 @@ Recommended setup:
    - `PAGES_REPO`: `owner/public-pages-repo`
    - `PAGES_BRANCH`: optional, defaults to `main`
    - `PAGES_BASE_URL`: optional, defaults to `https://owner.github.io/repo`
+   - `SCORE_REPO`: optional, defaults to `mpaladin/trail-intel-score`
+   - `SCORE_REPO_BRANCH`: optional, defaults to `main`
 4. Set this repository secret in the control repo:
    - `PAGES_REPO_TOKEN`: token with push access to the public Pages repo
+   - `SCORE_REPO_TOKEN`: optional token with push access to the score repo
+     (falls back to `PAGES_REPO_TOKEN` if that token can access both repos)
    - `BETRAIL_COOKIE`: optional, used when Betrail public API access is challenged in Actions
 
 Request flow:
@@ -325,6 +372,10 @@ Request flow:
 1. Open the `Generate race report` issue form from your phone or browser.
 2. Fill in race name, race URL, optional competition, threshold, top rows, and strategy.
 3. The workflow validates the requester, runs the CLI, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
+
+During the same run, the workflow also clones the score repo checkout into
+`$GITHUB_WORKSPACE/score-repo`, passes it to `trailintel --score-repo`, and
+commits/pushes refreshed athlete snapshots when the report adds or updates cache entries.
 
 Forecast request flow:
 
