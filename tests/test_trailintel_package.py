@@ -9,7 +9,6 @@ from trailintel.forecast.cli import main as forecast_cli_main
 from trailintel.github_pipeline import build_cli_args
 from trailintel.models import AthleteRecord
 from trailintel.providers.itra import ItraClient
-from trailintel.score_cli import main as score_cli_main
 
 
 class TrailIntelPackageTests(unittest.TestCase):
@@ -21,9 +20,6 @@ class TrailIntelPackageTests(unittest.TestCase):
 
     def test_forecast_cli_exports_main(self) -> None:
         self.assertTrue(callable(forecast_cli_main))
-
-    def test_score_cli_exports_main(self) -> None:
-        self.assertTrue(callable(score_cli_main))
 
     def test_github_pipeline_helpers_are_importable(self) -> None:
         self.assertTrue(callable(build_cli_args))

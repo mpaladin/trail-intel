@@ -21,7 +21,6 @@ dependencies = [
 
 [project.scripts]
 trailintel = "trailintel.cli:main"
-trailintel-score = "trailintel.score_cli:main"
 trailintel-forecast = "trailintel.forecast.cli:main"
 
 [tool.setuptools]
