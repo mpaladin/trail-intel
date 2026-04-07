@@ -22,7 +22,10 @@ from trailintel.cache_store import (
     SavedRaceEntry,
     default_cache_db_path,
 )
+from trailintel.matching import canonical_name
 from trailintel.cli import (
+    _apply_betrail_catalog_match,
+    _build_betrail_catalog,
     _enrich_records,
     _enrich_records_from_catalog,
     _is_above_threshold,
@@ -31,6 +34,7 @@ from trailintel.cli import (
 )
 from trailintel.models import AthleteRecord
 from trailintel.participants import dedupe_names, fetch_participants_from_url, load_participants_file, normalize_name
+from trailintel.providers.betrail import BetrailClient
 from trailintel.providers.itra import ItraClient, ItraLookupError, ItraMatch
 from trailintel.providers.utmb import UtmbClient, UtmbMatch
 from trailintel.report import sort_records
@@ -91,6 +95,7 @@ def _build_report_snapshot(
     no_result_names: list[str],
     utmb_scores: list[float],
     itra_scores: list[float],
+    betrail_scores: list[float],
     score_summary: dict[str, int],
     cache_status: str,
     stale_cache_used: bool,
@@ -107,6 +112,7 @@ def _build_report_snapshot(
         "no_result_names": no_result_names,
         "utmb_scores": utmb_scores,
         "itra_scores": itra_scores,
+        "betrail_scores": betrail_scores,
         "score_summary": score_summary,
         "cache_status": cache_status,
         "stale_cache_used": stale_cache_used,
@@ -452,6 +458,7 @@ def _enrich_records_keep_all(
     timeout: int,
     skip_itra: bool,
     itra_cookie: str | None,
+    betrail_cookie: str | None,
     cache_store: LookupCacheStore | None,
     use_cache: bool,
     force_refresh_cache: bool,
@@ -470,6 +477,14 @@ def _enrich_records_keep_all(
         use_cache=use_cache,
         force_refresh=force_refresh_cache,
     )
+    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_catalog, betrail_issue = _build_betrail_catalog(
+        betrail_client=betrail_client,
+        threshold=score_threshold,
+    )
+    betrail_entries = [(entry.name, entry.betrail_score, entry.profile_url) for entry in betrail_catalog]
+    betrail_exact = {canonical_name(name): (name, score, profile) for name, score, profile in betrail_entries}
+    betrail_min_match_score = max(0.85, min_match_score)
 
     records: list[AthleteRecord] = []
     itra_block_reason: str | None = None
@@ -572,6 +587,15 @@ def _enrich_records_keep_all(
                 notes=notes,
                 min_match_score=min_match_score,
             )
+            _apply_betrail_catalog_match(
+                record,
+                input_name=name,
+                entries=betrail_entries,
+                exact_lookup=betrail_exact,
+                min_match_score=betrail_min_match_score,
+                issue=betrail_issue,
+                note_missing=False,
+            )
             records.append(record)
 
     return records
@@ -586,11 +610,14 @@ def _records_to_rows(records: list[AthleteRecord], *, top: int) -> list[dict[str
                 "Athlete": record.input_name,
                 "UTMB": _score_fmt(record.utmb_index),
                 "ITRA": _score_fmt(record.itra_score),
+                "Betrail": _score_fmt(record.betrail_score),
                 "Combined": f"{record.combined_score:.1f}",
                 "UTMB Matched Name": record.utmb_match_name or "",
                 "ITRA Matched Name": record.itra_match_name or "",
+                "Betrail Matched Name": record.betrail_match_name or "",
                 "UTMB Profile": record.utmb_profile_url or "",
                 "ITRA Profile": record.itra_profile_url or "",
+                "Betrail Profile": record.betrail_profile_url or "",
                 "Notes": record.notes,
             }
         )
@@ -613,33 +640,42 @@ def _has_itra_match(record: AthleteRecord) -> bool:
     )
 
 
+def _has_betrail_match(record: AthleteRecord) -> bool:
+    return bool(
+        record.betrail_match_name
+        or record.betrail_profile_url
+        or (record.betrail_score is not None)
+    )
+
+
 def _compute_no_result_names(records: list[AthleteRecord]) -> list[str]:
     match_presence: dict[str, dict[str, bool]] = {}
     for record in records:
         name = record.input_name.strip()
         if not name:
             continue
-        status = match_presence.setdefault(name, {"utmb": False, "itra": False})
+        status = match_presence.setdefault(name, {"utmb": False, "itra": False, "betrail": False})
         status["utmb"] = status["utmb"] or _has_utmb_match(record)
         status["itra"] = status["itra"] or _has_itra_match(record)
+        status["betrail"] = status["betrail"] or _has_betrail_match(record)
 
     return sorted(
         name
         for name, status in match_presence.items()
-        if not status["utmb"] and not status["itra"]
+        if not status["utmb"] and not status["itra"] and not status["betrail"]
     )
 
 
 def _aggregate_scores_by_input(
     records: list[AthleteRecord],
-) -> tuple[list[float], list[float], dict[str, int]]:
+) -> tuple[list[float], list[float], list[float], dict[str, int]]:
     by_input: dict[str, dict[str, float | None]] = {}
     for record in records:
         normalized = normalize_name(record.input_name).casefold()
         key = normalized or record.input_name.strip().casefold()
         if not key:
             continue
-        bucket = by_input.setdefault(key, {"utmb": None, "itra": None})
+        bucket = by_input.setdefault(key, {"utmb": None, "itra": None, "betrail": None})
         if record.utmb_index is not None:
             bucket["utmb"] = (
                 record.utmb_index
@@ -652,21 +688,29 @@ def _aggregate_scores_by_input(
                 if bucket["itra"] is None
                 else max(bucket["itra"], record.itra_score)
             )
+        if record.betrail_score is not None:
+            bucket["betrail"] = (
+                record.betrail_score
+                if bucket["betrail"] is None
+                else max(bucket["betrail"], record.betrail_score)
+            )
 
     utmb_scores = [bucket["utmb"] for bucket in by_input.values() if bucket["utmb"] is not None]
     itra_scores = [bucket["itra"] for bucket in by_input.values() if bucket["itra"] is not None]
+    betrail_scores = [bucket["betrail"] for bucket in by_input.values() if bucket["betrail"] is not None]
     with_any = sum(
         1
         for bucket in by_input.values()
-        if bucket["utmb"] is not None or bucket["itra"] is not None
+        if bucket["utmb"] is not None or bucket["itra"] is not None or bucket["betrail"] is not None
     )
     summary = {
         "participants": len(by_input),
         "with_utmb": len(utmb_scores),
         "with_itra": len(itra_scores),
+        "with_betrail": len(betrail_scores),
         "with_any": with_any,
     }
-    return utmb_scores, itra_scores, summary
+    return utmb_scores, itra_scores, betrail_scores, summary
 
 
 def _build_score_histogram(scores: list[float], *, bin_size: int = 50) -> list[dict[str, object]]:
@@ -742,7 +786,8 @@ def _render_profile_link_list(rows: list[dict[str, object]]) -> None:
     for row in rows:
         utmb_url = str(row.get("UTMB Profile") or "").strip()
         itra_url = str(row.get("ITRA Profile") or "").strip()
-        if not utmb_url and not itra_url:
+        betrail_url = str(row.get("Betrail Profile") or "").strip()
+        if not utmb_url and not itra_url and not betrail_url:
             continue
         athlete = html.escape(str(row.get("Athlete", "")))
         parts: list[str] = []
@@ -756,6 +801,11 @@ def _render_profile_link_list(rows: list[dict[str, object]]) -> None:
             parts.append(
                 f'<a href="{safe_itra}" target="_blank" rel="noopener noreferrer">ITRA</a>'
             )
+        if betrail_url:
+            safe_betrail = html.escape(betrail_url, quote=True)
+            parts.append(
+                f'<a href="{safe_betrail}" target="_blank" rel="noopener noreferrer">Betrail</a>'
+            )
         st.markdown(f"- {athlete}: {' | '.join(parts)}", unsafe_allow_html=True)
         shown += 1
         if shown >= 50:
@@ -765,46 +815,51 @@ def _render_profile_link_list(rows: list[dict[str, object]]) -> None:
 def _render_score_distribution(snapshot: dict[str, object]) -> None:
     participants_count = snapshot.get("participants_count", 0)
     has_score_payload = any(
-        key in snapshot for key in ("utmb_scores", "itra_scores", "score_summary")
+        key in snapshot for key in ("utmb_scores", "itra_scores", "betrail_scores", "score_summary")
     )
     utmb_scores = snapshot.get("utmb_scores", [])
     itra_scores = snapshot.get("itra_scores", [])
+    betrail_scores = snapshot.get("betrail_scores", [])
     score_summary = snapshot.get("score_summary", {})
 
     if not isinstance(utmb_scores, list):
         utmb_scores = []
     if not isinstance(itra_scores, list):
         itra_scores = []
+    if not isinstance(betrail_scores, list):
+        betrail_scores = []
     if not isinstance(score_summary, dict):
         score_summary = {}
 
     st.markdown("### Score Distribution")
     if not has_score_payload:
-        summary_cols = st.columns(4)
+        summary_cols = st.columns(5)
         summary_cols[0].metric("Participants", int(participants_count))
         summary_cols[1].metric("With UTMB", "n/a")
         summary_cols[2].metric("With ITRA", "n/a")
-        summary_cols[3].metric("With Any Score", "n/a")
+        summary_cols[3].metric("With Betrail", "n/a")
+        summary_cols[4].metric("With Any Score", "n/a")
         st.info("Score distribution was not stored for this saved run. Re-run to compute charts.")
         return
-    summary_cols = st.columns(4)
+    summary_cols = st.columns(5)
     summary_cols[0].metric(
         "Participants",
         int(score_summary.get("participants", participants_count)),
     )
     summary_cols[1].metric("With UTMB", int(score_summary.get("with_utmb", len(utmb_scores))))
     summary_cols[2].metric("With ITRA", int(score_summary.get("with_itra", len(itra_scores))))
-    fallback_any = max(len(utmb_scores), len(itra_scores))
-    summary_cols[3].metric(
+    summary_cols[3].metric("With Betrail", int(score_summary.get("with_betrail", len(betrail_scores))))
+    fallback_any = max(len(utmb_scores), len(itra_scores), len(betrail_scores))
+    summary_cols[4].metric(
         "With Any Score",
         int(score_summary.get("with_any", fallback_any)),
     )
 
-    if not utmb_scores and not itra_scores:
-        st.info("No UTMB/ITRA scores available to chart.")
+    if not utmb_scores and not itra_scores and not betrail_scores:
+        st.info("No UTMB/ITRA/Betrail scores available to chart.")
         return
 
-    chart_cols = st.columns(2)
+    chart_cols = st.columns(3)
     if utmb_scores:
         utmb_rows = _build_score_histogram([float(v) for v in utmb_scores if v is not None])
         _render_histogram_chart(chart_cols[0], title="UTMB Index", rows=utmb_rows)
@@ -819,11 +874,18 @@ def _render_score_distribution(snapshot: dict[str, object]) -> None:
         chart_cols[1].markdown("**ITRA Score**")
         chart_cols[1].info("No ITRA scores available.")
 
+    if betrail_scores:
+        betrail_rows = _build_score_histogram([float(v) for v in betrail_scores if v is not None])
+        _render_histogram_chart(chart_cols[2], title="Betrail Score", rows=betrail_rows)
+    else:
+        chart_cols[2].markdown("**Betrail Score**")
+        chart_cols[2].info("No Betrail scores available.")
+
 
 def _render_no_result_section(no_result_names: list[str]) -> None:
-    st.markdown("### No result on both UTMB and ITRA")
+    st.markdown("### No result on UTMB, ITRA, and Betrail")
     if no_result_names:
-        st.caption(f"{len(no_result_names)} participant(s) had no match on either provider.")
+        st.caption(f"{len(no_result_names)} participant(s) had no match on any provider.")
         st.dataframe(
             [{"Athlete": name} for name in no_result_names],
             width="stretch",
@@ -1173,7 +1235,7 @@ def run_app() -> None:
             )
             score_threshold = st.number_input("Score threshold (strict >)", min_value=0.0, value=680.0)
             top = st.number_input("Top rows", min_value=1, max_value=500, value=100)
-            sort_by = st.selectbox("Sort by", options=["combined", "utmb", "itra"], index=0)
+            sort_by = st.selectbox("Sort by", options=["combined", "utmb", "itra", "betrail"], index=0)
             run_clicked = st.button("Run report", type="primary", width="stretch")
 
             st.subheader("Advanced")
@@ -1259,6 +1321,7 @@ def run_app() -> None:
         effective_use_cache = use_persistent_cache and (cache_store_for_lookup is not None)
 
         normalized_itra_cookie = _normalize_cookie_header(itra_cookie)
+        betrail_cookie = os.getenv("BETRAIL_COOKIE") or None
         if itra_cookie.strip() and not normalized_itra_cookie:
             st.warning("ITRA cookie format looks invalid. Expected: name=value; name2=value2")
 
@@ -1289,6 +1352,7 @@ def run_app() -> None:
                         skip_itra=skip_itra,
                         itra_overrides=None,
                         itra_cookie=normalized_itra_cookie,
+                        betrail_cookie=betrail_cookie,
                         score_threshold=float(score_threshold),
                         utmb_catalog_max_pages=int(utmb_catalog_max_pages),
                         catalog_min_match_score=float(catalog_min_match_score),
@@ -1301,6 +1365,7 @@ def run_app() -> None:
                         timeout=int(timeout),
                         skip_itra=skip_itra,
                         itra_cookie=normalized_itra_cookie,
+                        betrail_cookie=betrail_cookie,
                         cache_store=cache_store_for_lookup,
                         use_cache=effective_use_cache,
                         force_refresh_cache=force_refresh_cache,
@@ -1314,6 +1379,7 @@ def run_app() -> None:
                         skip_itra=skip_itra,
                         itra_overrides=None,
                         itra_cookie=normalized_itra_cookie,
+                        betrail_cookie=betrail_cookie,
                         cache_store=cache_store_for_lookup,
                         use_cache=effective_use_cache,
                         force_refresh_cache=force_refresh_cache,
@@ -1328,7 +1394,7 @@ def run_app() -> None:
 
         filtered = [record for record in records if _is_above_threshold(record, float(score_threshold))]
         no_result_names = _compute_no_result_names(records)
-        utmb_scores, itra_scores, score_summary = _aggregate_scores_by_input(records)
+        utmb_scores, itra_scores, betrail_scores, score_summary = _aggregate_scores_by_input(records)
         score_summary["participants"] = len(names)
         ranked = sort_records(filtered, sort_by=sort_by)
         rows = _records_to_rows(ranked, top=int(top))
@@ -1348,6 +1414,7 @@ def run_app() -> None:
             no_result_names=no_result_names,
             utmb_scores=utmb_scores,
             itra_scores=itra_scores,
+            betrail_scores=betrail_scores,
             score_summary=score_summary,
             cache_status=cache_status,
             stale_cache_used=stale_cache_used,

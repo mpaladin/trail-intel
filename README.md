@@ -5,6 +5,7 @@ with:
 
 - UTMB index (`api.utmb.world`)
 - ITRA score (best-effort via `itra.run` search API; may be blocked by CloudFront)
+- Betrail score (catalog match from `betrail.run`, normalized from a 100-scale)
 
 It also includes a route-forecast pipeline that turns a GPX + start time into:
 
@@ -18,17 +19,19 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
   - `--race-url` (auto-detect JSON/CSV/HTML with optional CSS selector)
   - `--participants-file` (CSV, JSON, or TXT)
   - one or more `--participant "First Last"`
-- Enrichment from UTMB and ITRA
+- Enrichment from UTMB, ITRA, and Betrail
 - Two strategies:
   - `participant-first`: lookup each participant, then keep athletes above threshold
   - `catalog-first`: build high-score athlete catalogs, then match participants
 - Name matching with exact + fuzzy scoring
 - Accent-aware search (also tries de-accented query variants)
 - Score threshold filtering (default strict `>680`)
+  - Betrail uses the same threshold divided by 10 (`680` => `68.0`)
 - Top-N report in terminal
 - Optional export to CSV, JSON, or a static HTML report bundle
 - Optional manual ITRA overrides file when live ITRA is blocked
 - Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
+- Optional Betrail cookie fallback (`--betrail-cookie` or `BETRAIL_COOKIE`)
 - Persistent DuckDB cache for participant-first athlete lookups
 - Separate `trailintel-forecast` CLI for GPX weather reports
 - Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
@@ -178,6 +181,7 @@ In this mode:
 
 - UTMB catalog is fetched from the public paginated endpoint and filtered to `> threshold`
 - ITRA catalog is fetched from public ranking payload on `itra.run/Runners/Ranking`
+- Betrail catalog is fetched from `betrail.run/api/score/full/level/<offset>/scratch/ALL/ALL`
 - Participants are matched against those high-score catalogs
 - Fuzzy catalog matching is stricter by default; tune with `--catalog-min-match-score`
 
@@ -202,6 +206,7 @@ Jim Walmsley,930
 ```bash
 trailintel --participants-file ./participants.csv --output report.csv
 trailintel --participants-file ./participants.csv --output report.json --sort-by combined
+trailintel --participants-file ./participants.csv --sort-by betrail
 trailintel --participants-file ./participants.csv --site-dir ./dist/report-site
 ```
 
@@ -216,9 +221,9 @@ trailintel --participants-file ./participants.csv --site-dir ./dist/report-site
 The HTML page mirrors the main report view with:
 
 - summary metrics
-- top-athlete table with clickable UTMB/ITRA links
-- score distribution charts
-- “no result on both providers” section
+- top-athlete table with clickable UTMB/ITRA/Betrail links
+- score distribution charts for UTMB, ITRA, and Betrail
+- “no result on any provider” section
 - CSV/JSON download links
 
 ## Cache options
@@ -264,11 +269,30 @@ If cookie-authenticated ITRA lookup fails (for example stale/invalid cookie or
 CloudFront blocking), the app now retries the lookup anonymously for the same
 run and keeps your persisted cookie unchanged.
 
+## Optional Betrail cookie
+
+If Betrail public access is challenged in your environment, pass a valid cookie:
+
+```bash
+export BETRAIL_COOKIE='cookie1=value1; cookie2=value2'
+trailintel --participants-file ./participants.csv --strategy participant-first
+```
+
+or:
+
+```bash
+trailintel --participants-file ./participants.csv --betrail-cookie 'cookie1=value1; cookie2=value2'
+```
+
+The app tries anonymous Betrail access first and falls back to the provided cookie when needed.
+
 ## Notes
 
 - UTMB endpoint is public and currently accessible.
 - ITRA endpoint may return `403` depending on environment/WAF; the app keeps
   running and marks missing ITRA values as unavailable.
+- Betrail may be challenged by Cloudflare depending on environment. Provide
+  `BETRAIL_COOKIE`/`--betrail-cookie` when needed.
 - When ITRA live lookup fails but stale cache exists, stale cached candidates
   are used and noted in the report.
 - If repeated ITRA failures continue, refresh/replace your cookie or clear it
@@ -294,6 +318,7 @@ Recommended setup:
    - `PAGES_BASE_URL`: optional, defaults to `https://owner.github.io/repo`
 4. Set this repository secret in the control repo:
    - `PAGES_REPO_TOKEN`: token with push access to the public Pages repo
+   - `BETRAIL_COOKIE`: optional, used when Betrail public API access is challenged in Actions
 
 Request flow:
 
@@ -309,7 +334,20 @@ Forecast request flow:
    - one ZIP attachment containing exactly one GPX in `Notes`
 3. The workflow downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
 
-The hosted workflow uses anonymous/public ITRA access only. It does not require an ITRA cookie.
+The hosted workflow uses anonymous/public ITRA access by default and optionally
+uses `BETRAIL_COOKIE` when configured.
+
+## Backfill Published Pages
+
+To refresh an existing `trail-intel-pages` worktree so historical reports gain
+Betrail score/link columns:
+
+```bash
+trailintel-backfill-pages --pages-root /path/to/trail-intel-pages
+```
+
+If Betrail public access is challenged, add `--betrail-cookie` or set
+`BETRAIL_COOKIE` before running the command.
 
 Published Pages layout:
 

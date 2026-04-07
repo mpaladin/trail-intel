@@ -8,15 +8,18 @@ from trailintel.providers.itra import ItraLookupError
 
 
 class ItraResilienceTests(unittest.TestCase):
+    @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
     @patch("trailintel.cli.UtmbClient")
     def test_single_itra_failure_does_not_disable_remaining_lookups(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search.return_value = None
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         mock_itra = mock_itra_client.return_value
         mock_itra.search.side_effect = [
@@ -32,21 +35,25 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
+            betrail_cookie=None,
         )
 
         self.assertIn("ITRA unavailable: temporary failure", records[0].notes)
         self.assertIn("ITRA not found", records[1].notes)
         self.assertEqual(mock_itra.search.call_count, 2)
 
+    @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
     @patch("trailintel.cli.UtmbClient")
     def test_consecutive_failures_eventually_disable_itra(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search.return_value = None
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         mock_itra = mock_itra_client.return_value
         mock_itra.search.side_effect = [ItraLookupError("blocked")] * 8
@@ -60,6 +67,7 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
+            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 8)
@@ -68,15 +76,18 @@ class ItraResilienceTests(unittest.TestCase):
             records[-1].notes,
         )
 
+    @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
     @patch("trailintel.cli.UtmbClient")
     def test_note_added_when_cookie_fallback_is_used(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search.return_value = None
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         mock_itra = mock_itra_client.return_value
         mock_itra.search.return_value = None
@@ -91,16 +102,19 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie="session=broken",
+            betrail_cookie=None,
         )
 
         self.assertIn("ITRA cookie rejected, retried anonymously", records[0].notes)
 
+    @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
     @patch("trailintel.cli.UtmbClient")
     def test_itra_lookup_skipped_when_utmb_below_threshold(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search.return_value = type(
@@ -113,6 +127,7 @@ class ItraResilienceTests(unittest.TestCase):
                 "profile_url": "https://utmb.world/runner/alice",
             },
         )()
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         records = _enrich_records(
             ["Alice Martin"],
@@ -122,17 +137,20 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
+            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra_client.return_value.search.call_count, 0)
         self.assertIn("ITRA skipped because UTMB 655.0 <= threshold 700.0", records[0].notes)
 
+    @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
     @patch("trailintel.cli.UtmbClient")
     def test_itra_lookup_still_runs_when_utmb_above_threshold(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search.return_value = type(
@@ -150,6 +168,7 @@ class ItraResilienceTests(unittest.TestCase):
         mock_itra.search.return_value = None
         mock_itra.last_lookup_used_cookie_fallback = False
         mock_itra.last_lookup_stale_fallback = False
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         records = _enrich_records(
             ["Alice Martin"],
@@ -159,6 +178,7 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
+            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 1)

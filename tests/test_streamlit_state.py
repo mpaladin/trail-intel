@@ -67,7 +67,8 @@ class StreamlitStateTests(unittest.TestCase):
             no_result_names=["B", "C"],
             utmb_scores=[700.0],
             itra_scores=[690.0],
-            score_summary={"participants": 10, "with_utmb": 1, "with_itra": 1, "with_any": 1},
+            betrail_scores=[74.5],
+            score_summary={"participants": 10, "with_utmb": 1, "with_itra": 1, "with_betrail": 1, "with_any": 1},
             cache_status="Cache: enabled",
             stale_cache_used=True,
         )
@@ -77,6 +78,7 @@ class StreamlitStateTests(unittest.TestCase):
         self.assertEqual(snapshot["no_result_names"], ["B", "C"])
         self.assertEqual(snapshot["utmb_scores"], [700.0])
         self.assertEqual(snapshot["itra_scores"], [690.0])
+        self.assertEqual(snapshot["betrail_scores"], [74.5])
         self.assertEqual(snapshot["score_summary"]["with_any"], 1)
         self.assertEqual(snapshot["export_rows"], [{"Athlete": "A"}, {"Athlete": "B"}])
         self.assertEqual(snapshot["cache_status"], "Cache: enabled")
@@ -92,6 +94,10 @@ class StreamlitStateTests(unittest.TestCase):
 
     def test_compute_no_result_names_excludes_itra_match_without_score(self) -> None:
         records = [AthleteRecord(input_name="ITRA Match", itra_match_name="Runner", itra_score=None)]
+        self.assertEqual(_compute_no_result_names(records), [])
+
+    def test_compute_no_result_names_excludes_betrail_match_without_other_scores(self) -> None:
+        records = [AthleteRecord(input_name="Betrail Match", betrail_match_name="Runner", betrail_score=72.0)]
         self.assertEqual(_compute_no_result_names(records), [])
 
     def test_compute_no_result_names_aggregates_keep_all_candidates(self) -> None:
@@ -167,7 +173,8 @@ class StreamlitStateTests(unittest.TestCase):
             no_result_names=[],
             utmb_scores=[],
             itra_scores=[],
-            score_summary={"participants": 10, "with_utmb": 0, "with_itra": 0, "with_any": 0},
+            betrail_scores=[],
+            score_summary={"participants": 10, "with_utmb": 0, "with_itra": 0, "with_betrail": 0, "with_any": 0},
             cache_status="Cache: enabled",
             stale_cache_used=False,
         )
@@ -240,12 +247,14 @@ class StreamlitStateTests(unittest.TestCase):
         self.assertFalse(_should_auto_load_selected_race("__custom__", "race-key-1"))
         self.assertFalse(_should_auto_load_selected_race("race-key-1", "race-key-1"))
 
+    @patch("trailintel.streamlit_app.BetrailClient")
     @patch("trailintel.streamlit_app.ItraClient")
     @patch("trailintel.streamlit_app.UtmbClient")
     def test_keep_all_skips_itra_when_utmb_candidates_below_threshold(
         self,
         mock_utmb_client,
         mock_itra_client,
+        mock_betrail_client,
     ) -> None:
         mock_utmb = mock_utmb_client.return_value
         mock_utmb.search_same_name_candidates.return_value = [
@@ -261,6 +270,7 @@ class StreamlitStateTests(unittest.TestCase):
             )()
         ]
         mock_utmb.last_lookup_stale_fallback = False
+        mock_betrail_client.return_value.fetch_catalog_above_threshold.return_value = []
 
         records = _enrich_records_keep_all(
             ["Alice Martin"],
@@ -269,6 +279,7 @@ class StreamlitStateTests(unittest.TestCase):
             timeout=15,
             skip_itra=False,
             itra_cookie=None,
+            betrail_cookie=None,
             cache_store=None,
             use_cache=False,
             force_refresh_cache=False,
