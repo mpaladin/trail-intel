@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
 import json
 import os
-from pathlib import Path
 import re
 import tomllib
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -82,7 +82,7 @@ def default_score_repo_path(config_path: Path | None = None) -> Path | None:
         return None
     try:
         parsed = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
+    except OSError, tomllib.TOMLDecodeError:
         return None
     if not isinstance(parsed, dict):
         return None
@@ -162,7 +162,7 @@ def _as_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -186,7 +186,14 @@ def _athlete_schema_payload() -> dict[str, Any]:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "TrailIntel athlete score snapshot",
         "type": "object",
-        "required": ["schema_version", "identity", "providers", "provenance", "created_at", "updated_at"],
+        "required": [
+            "schema_version",
+            "identity",
+            "providers",
+            "provenance",
+            "created_at",
+            "updated_at",
+        ],
         "properties": {
             "schema_version": {"const": ATHLETE_SCHEMA_VERSION},
             "identity": {
@@ -331,7 +338,11 @@ class AthleteScoreRepo:
             return None
 
         stored_threshold = _as_float(snapshot.get("lookup_threshold"))
-        if status == "miss" and lookup_threshold is not None and stored_threshold is not None:
+        if (
+            status == "miss"
+            and lookup_threshold is not None
+            and stored_threshold is not None
+        ):
             if lookup_threshold < stored_threshold:
                 return None
 
@@ -377,9 +388,17 @@ class AthleteScoreRepo:
         self.ensure_layout()
 
         now = (observed_at or datetime.now(UTC)).astimezone(UTC)
-        persisted = [obs for obs in observations if self._should_persist_observation(obs)]
-        doc = self._resolve_doc_for_observations(input_name=input_name, observations=persisted)
-        if doc is not None and not persisted and canonical_name(input_name) in self._doc_names(doc):
+        persisted = [
+            obs for obs in observations if self._should_persist_observation(obs)
+        ]
+        doc = self._resolve_doc_for_observations(
+            input_name=input_name, observations=persisted
+        )
+        if (
+            doc is not None
+            and not persisted
+            and canonical_name(input_name) in self._doc_names(doc)
+        ):
             return RepoWriteResult(
                 athlete_id=str(doc["identity"]["athlete_id"]),
                 created=False,
@@ -403,7 +422,9 @@ class AthleteScoreRepo:
             provenance = {}
             doc["provenance"] = provenance
 
-        aliases_changed = self._update_identity_aliases(doc, input_name=input_name, observations=persisted)
+        aliases_changed = self._update_identity_aliases(
+            doc, input_name=input_name, observations=persisted
+        )
         provenance_changed = self._update_provenance(
             provenance=provenance,
             source_run_id=source_run_id,
@@ -412,14 +433,18 @@ class AthleteScoreRepo:
 
         provider_updates = 0
         for observation in persisted:
-            snapshot = self._snapshot_from_observation(observation=observation, observed_at=now)
+            snapshot = self._snapshot_from_observation(
+                observation=observation, observed_at=now
+            )
             existing = providers.get(observation.provider)
             if existing == snapshot:
                 continue
             providers[observation.provider] = snapshot
             provider_updates += 1
 
-        updated = created or aliases_changed or provenance_changed or provider_updates > 0
+        updated = (
+            created or aliases_changed or provenance_changed or provider_updates > 0
+        )
         if not updated:
             return RepoWriteResult(
                 athlete_id=athlete_id,
@@ -433,10 +458,14 @@ class AthleteScoreRepo:
         doc["updated_at"] = _isoformat(now)
         self._docs[athlete_id] = doc
 
-        self._remove_index_entries(athlete_id=athlete_id, names=old_names, provider_keys=old_provider_keys)
+        self._remove_index_entries(
+            athlete_id=athlete_id, names=old_names, provider_keys=old_provider_keys
+        )
         self._add_doc_indexes(doc)
 
-        self._write_if_changed(self._athlete_path(athlete_id), self._serialize_json(doc))
+        self._write_if_changed(
+            self._athlete_path(athlete_id), self._serialize_json(doc)
+        )
         return RepoWriteResult(
             athlete_id=athlete_id,
             created=created,
@@ -489,8 +518,12 @@ class AthleteScoreRepo:
             if not isinstance(identity, dict):
                 continue
             aliases = identity.get("aliases", [])
-            candidates = [identity.get("primary_name", "")] + (aliases if isinstance(aliases, list) else [])
-            if any(str(candidate).strip().casefold() == folded for candidate in candidates):
+            candidates = [identity.get("primary_name", "")] + (
+                aliases if isinstance(aliases, list) else []
+            )
+            if any(
+                str(candidate).strip().casefold() == folded for candidate in candidates
+            ):
                 direct_matches.append(athlete_id)
         if len(direct_matches) == 1:
             return self._docs.get(direct_matches[0])
@@ -504,17 +537,25 @@ class AthleteScoreRepo:
     ) -> dict[str, Any] | None:
         exact_hits: list[str] = []
         for observation in observations:
-            provider_uid = provider_uid_from_profile(observation.provider, observation.profile_url)
+            provider_uid = provider_uid_from_profile(
+                observation.provider, observation.profile_url
+            )
             if not provider_uid:
                 continue
-            athlete_id = self._provider_uid_index.get((observation.provider, provider_uid))
+            athlete_id = self._provider_uid_index.get(
+                (observation.provider, provider_uid)
+            )
             if athlete_id and athlete_id not in exact_hits:
                 exact_hits.append(athlete_id)
 
         if len(exact_hits) == 1:
             return self._docs.get(exact_hits[0])
         if exact_hits:
-            strong_hits = [athlete_id for athlete_id in exact_hits if self._doc_matches_name(athlete_id, input_name)]
+            strong_hits = [
+                athlete_id
+                for athlete_id in exact_hits
+                if self._doc_matches_name(athlete_id, input_name)
+            ]
             if len(strong_hits) == 1:
                 return self._docs.get(strong_hits[0])
             return self._docs.get(sorted(exact_hits)[0])
@@ -551,7 +592,9 @@ class AthleteScoreRepo:
             if not isinstance(existing, dict):
                 continue
             existing_uid = _text_or_none(existing.get("provider_uid"))
-            incoming_uid = provider_uid_from_profile(observation.provider, observation.profile_url)
+            incoming_uid = provider_uid_from_profile(
+                observation.provider, observation.profile_url
+            )
             if existing_uid and incoming_uid and existing_uid != incoming_uid:
                 return False
         return True
@@ -569,7 +612,11 @@ class AthleteScoreRepo:
         aliases = identity.get("aliases", [])
         if not isinstance(aliases, list):
             return False
-        return any(is_strong_person_name_match(name, str(alias)) for alias in aliases if str(alias).strip())
+        return any(
+            is_strong_person_name_match(name, str(alias))
+            for alias in aliases
+            if str(alias).strip()
+        )
 
     def _new_doc(self, *, primary_name: str, observed_at: datetime) -> dict[str, Any]:
         athlete_id = uuid4().hex
@@ -605,16 +652,21 @@ class AthleteScoreRepo:
         observation: RepoProviderObservation,
         observed_at: datetime,
     ) -> dict[str, Any]:
-        ttl_days = SUCCESS_TTL_DAYS if observation.status == "matched" else MISS_TTL_DAYS
+        ttl_days = (
+            SUCCESS_TTL_DAYS if observation.status == "matched" else MISS_TTL_DAYS
+        )
         checked_at = (observation.checked_at or observed_at).astimezone(UTC)
         expires_at = checked_at + timedelta(days=ttl_days)
         return {
             "status": observation.status,
-            "provider_uid": provider_uid_from_profile(observation.provider, observation.profile_url),
+            "provider_uid": provider_uid_from_profile(
+                observation.provider, observation.profile_url
+            ),
             "matched_name": observation.matched_name,
             "profile_url": observation.profile_url,
             "score": observation.score,
-            "score_scale": observation.score_scale or provider_score_scale(observation.provider),
+            "score_scale": observation.score_scale
+            or provider_score_scale(observation.provider),
             "match_confidence": observation.match_confidence,
             "last_checked_at": _isoformat(checked_at),
             "expires_at": _isoformat(expires_at),
@@ -638,7 +690,9 @@ class AthleteScoreRepo:
         primary_name = str(identity.get("primary_name", "")).strip() or input_name
         aliases = identity.get("aliases", [])
         alias_values = aliases if isinstance(aliases, list) else []
-        new_aliases = [primary_name, input_name] + [str(value) for value in alias_values]
+        new_aliases = [primary_name, input_name] + [
+            str(value) for value in alias_values
+        ]
         new_aliases.extend(
             observation.matched_name or ""
             for observation in observations
@@ -671,7 +725,9 @@ class AthleteScoreRepo:
         run_ids = provenance.get("source_run_ids", [])
         if not isinstance(run_ids, list):
             run_ids = []
-        normalized_run_ids = [str(value).strip() for value in run_ids if str(value).strip()]
+        normalized_run_ids = [
+            str(value).strip() for value in run_ids if str(value).strip()
+        ]
         if source_run_id and source_run_id not in normalized_run_ids:
             normalized_run_ids.append(source_run_id)
             normalized_run_ids = normalized_run_ids[-20:]
@@ -698,12 +754,16 @@ class AthleteScoreRepo:
     def _serialize_json(self, payload: dict[str, Any]) -> str:
         return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
-    def _normalize_doc(self, payload: dict[str, Any], *, fallback_athlete_id: str) -> dict[str, Any]:
+    def _normalize_doc(
+        self, payload: dict[str, Any], *, fallback_athlete_id: str
+    ) -> dict[str, Any]:
         identity = payload.get("identity")
         if not isinstance(identity, dict):
             identity = {}
         athlete_id = str(identity.get("athlete_id", "")).strip() or fallback_athlete_id
-        primary_name = str(identity.get("primary_name", "")).strip() or fallback_athlete_id
+        primary_name = (
+            str(identity.get("primary_name", "")).strip() or fallback_athlete_id
+        )
         aliases = identity.get("aliases", [])
         alias_values = aliases if isinstance(aliases, list) else []
         providers = payload.get("providers")
@@ -719,10 +779,15 @@ class AthleteScoreRepo:
                 "matched_name": _text_or_none(snapshot.get("matched_name")),
                 "profile_url": _text_or_none(snapshot.get("profile_url")),
                 "score": _as_float(snapshot.get("score")),
-                "score_scale": _text_or_none(snapshot.get("score_scale")) or provider_score_scale(provider),
+                "score_scale": _text_or_none(snapshot.get("score_scale"))
+                or provider_score_scale(provider),
                 "match_confidence": _as_float(snapshot.get("match_confidence")),
-                "last_checked_at": _isoformat(_normalize_dt(snapshot.get("last_checked_at")) or datetime.now(UTC)),
-                "expires_at": _isoformat(_normalize_dt(snapshot.get("expires_at")) or datetime.now(UTC)),
+                "last_checked_at": _isoformat(
+                    _normalize_dt(snapshot.get("last_checked_at")) or datetime.now(UTC)
+                ),
+                "expires_at": _isoformat(
+                    _normalize_dt(snapshot.get("expires_at")) or datetime.now(UTC)
+                ),
                 "source_run_id": _text_or_none(snapshot.get("source_run_id")),
                 "lookup_threshold": _as_float(snapshot.get("lookup_threshold")),
             }
@@ -734,24 +799,38 @@ class AthleteScoreRepo:
             source_run_ids = []
 
         return {
-            "schema_version": str(payload.get("schema_version", ATHLETE_SCHEMA_VERSION)),
+            "schema_version": str(
+                payload.get("schema_version", ATHLETE_SCHEMA_VERSION)
+            ),
             "identity": {
                 "athlete_id": athlete_id,
                 "primary_name": primary_name,
-                "canonical_name": canonical_name(str(identity.get("canonical_name", "")) or primary_name),
+                "canonical_name": canonical_name(
+                    str(identity.get("canonical_name", "")) or primary_name
+                ),
                 "aliases": _dedupe_preserving_order(
                     [primary_name] + [str(value) for value in alias_values]
                 ),
             },
             "providers": normalized_providers,
             "provenance": {
-                "source_run_ids": [str(value).strip() for value in source_run_ids if str(value).strip()],
-                "first_source_kind": str(provenance.get("first_source_kind", "")).strip(),
+                "source_run_ids": [
+                    str(value).strip() for value in source_run_ids if str(value).strip()
+                ],
+                "first_source_kind": str(
+                    provenance.get("first_source_kind", "")
+                ).strip(),
                 "last_source_kind": str(provenance.get("last_source_kind", "")).strip(),
-                "last_source_run_id": _text_or_none(provenance.get("last_source_run_id")),
+                "last_source_run_id": _text_or_none(
+                    provenance.get("last_source_run_id")
+                ),
             },
-            "created_at": _isoformat(_normalize_dt(payload.get("created_at")) or datetime.now(UTC)),
-            "updated_at": _isoformat(_normalize_dt(payload.get("updated_at")) or datetime.now(UTC)),
+            "created_at": _isoformat(
+                _normalize_dt(payload.get("created_at")) or datetime.now(UTC)
+            ),
+            "updated_at": _isoformat(
+                _normalize_dt(payload.get("updated_at")) or datetime.now(UTC)
+            ),
         }
 
     def _athlete_path(self, athlete_id: str) -> Path:

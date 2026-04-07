@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import tempfile
+import unittest
+import zipfile
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-import tempfile
-import unittest
 from unittest.mock import patch
-import zipfile
 
 from trailintel.forecast.github_pipeline import (
     ForecastRequest,
@@ -59,7 +59,9 @@ Sunrise push.
             duration="03:30",
         )
         body = "Attachment https://github.com/user-attachments/files/123/route.zip"
-        self.assertEqual(resolve_gpx_source_url(request, body), "https://example.com/route.gpx")
+        self.assertEqual(
+            resolve_gpx_source_url(request, body), "https://example.com/route.gpx"
+        )
 
     def test_resolve_gpx_source_url_uses_single_zip_attachment(self) -> None:
         request = ForecastRequest(
@@ -113,10 +115,14 @@ Sunrise push.
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "bundle"
             source.mkdir(parents=True, exist_ok=True)
-            (source / "index.html").write_text("<html>forecast</html>", encoding="utf-8")
+            (source / "index.html").write_text(
+                "<html>forecast</html>", encoding="utf-8"
+            )
             (source / "forecast.png").write_bytes(b"png")
             (source / "route.gpx").write_text("<gpx></gpx>", encoding="utf-8")
-            (source / "snapshot.json").write_text('{"report_kind":"forecast","title":"Dolomite Dawn"}', encoding="utf-8")
+            (source / "snapshot.json").write_text(
+                '{"report_kind":"forecast","title":"Dolomite Dawn"}', encoding="utf-8"
+            )
             (source / "report-meta.json").write_text(
                 '{"report_kind":"forecast","title":"Dolomite Dawn"}',
                 encoding="utf-8",
@@ -139,8 +145,12 @@ Sunrise push.
                 "https://example.github.io/trailintel-pages/forecasts/dolomite-dawn/latest/index.html",
             )
 
-            forecast_index = (Path(tmp) / "pages" / "forecasts" / "index.html").read_text(encoding="utf-8")
-            root_index = (Path(tmp) / "pages" / "index.html").read_text(encoding="utf-8")
+            forecast_index = (
+                Path(tmp) / "pages" / "forecasts" / "index.html"
+            ).read_text(encoding="utf-8")
+            root_index = (Path(tmp) / "pages" / "index.html").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("Dolomite Dawn", forecast_index)
             self.assertIn("forecasts/index.html", root_index)
 

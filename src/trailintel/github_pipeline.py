@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
 import re
 import unicodedata
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 DEFAULT_SCORE_THRESHOLD = 680.0
@@ -94,7 +94,9 @@ def parse_issue_form(body: str) -> ReportRequest:
     if strategy not in {"participant-first", "catalog-first"}:
         raise ValueError(f"Unsupported strategy: {strategy}")
 
-    score_threshold_text = sections.get("score_threshold", str(DEFAULT_SCORE_THRESHOLD)).strip()
+    score_threshold_text = sections.get(
+        "score_threshold", str(DEFAULT_SCORE_THRESHOLD)
+    ).strip()
     top_text = sections.get("top", str(DEFAULT_TOP)).strip()
     try:
         score_threshold = float(score_threshold_text)
@@ -118,7 +120,9 @@ def parse_issue_form(body: str) -> ReportRequest:
 
 
 def normalize_slug_text(value: str) -> str:
-    ascii_text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    ascii_text = (
+        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    )
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_text.lower()).strip("-")
     return slug or "race-report"
 
@@ -144,7 +148,9 @@ def build_race_slug(request: ReportRequest) -> str:
     return normalize_slug_text(fallback)
 
 
-def build_publish_paths(request: ReportRequest, *, published_at: datetime) -> tuple[str, str]:
+def build_publish_paths(
+    request: ReportRequest, *, published_at: datetime
+) -> tuple[str, str]:
     slug = build_race_slug(request)
     stamp = published_at.astimezone(UTC).strftime("%Y%m%d-%H%M%S")
     return f"reports/{slug}/{stamp}", f"reports/{slug}/latest"

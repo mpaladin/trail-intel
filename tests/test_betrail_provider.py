@@ -71,12 +71,17 @@ class BetrailProviderTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].name, "Alice Trail")
         self.assertEqual(entries[0].betrail_score, 74.5)
-        self.assertEqual(entries[0].profile_url, "https://www.betrail.run/runner/alice.trail/overview")
+        self.assertEqual(
+            entries[0].profile_url,
+            "https://www.betrail.run/runner/alice.trail/overview",
+        )
         self.assertEqual(mock_fetch_page.call_count, 2)
 
     @patch("trailintel.providers.betrail.BetrailClient._fetch_page")
     def test_catalog_fetch_propagates_public_failure(self, mock_fetch_page) -> None:
-        mock_fetch_page.side_effect = BetrailLookupError("Betrail request blocked by Cloudflare.")
+        mock_fetch_page.side_effect = BetrailLookupError(
+            "Betrail request blocked by Cloudflare."
+        )
 
         client = BetrailClient(timeout=5)
 

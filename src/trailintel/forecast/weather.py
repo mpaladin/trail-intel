@@ -54,9 +54,7 @@ class OpenMeteoClient:
                 "latitude": ",".join(f"{sample.lat:.6f}" for sample in batch),
                 "longitude": ",".join(f"{sample.lon:.6f}" for sample in batch),
                 "elevation": ",".join(
-                    "nan"
-                    if sample.elevation_m is None
-                    else f"{sample.elevation_m:.1f}"
+                    "nan" if sample.elevation_m is None else f"{sample.elevation_m:.1f}"
                     for sample in batch
                 ),
                 "hourly": ",".join(HOURLY_FIELDS),
@@ -138,11 +136,15 @@ class OpenMeteoClient:
             wind_direction_deg=[float(value) % 360 for value in wind_direction],
             cloud_cover_pct=[float(value) for value in cloud_cover],
             precipitation_mm=[float(value) for value in precipitation],
-            precipitation_probability=[float(value) for value in precipitation_probability],
+            precipitation_probability=[
+                float(value) for value in precipitation_probability
+            ],
         )
 
 
-def chunked(values: Iterable[SamplePoint], chunk_size: int) -> Iterator[list[SamplePoint]]:
+def chunked(
+    values: Iterable[SamplePoint], chunk_size: int
+) -> Iterator[list[SamplePoint]]:
     iterator = iter(values)
     while chunk := list(islice(iterator, chunk_size)):
         yield chunk

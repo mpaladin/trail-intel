@@ -64,7 +64,9 @@ class BetrailClient:
     def _is_cloudflare_block_response(cls, response: requests.Response) -> bool:
         text = (response.text or "").casefold()
         if response.status_code == 403 and (
-            "just a moment" in text or "cloudflare" in text or response.headers.get("cf-mitigated")
+            "just a moment" in text
+            or "cloudflare" in text
+            or response.headers.get("cf-mitigated")
         ):
             return True
         return False
@@ -79,14 +81,20 @@ class BetrailClient:
         if response.status_code >= 400:
             if self._is_cloudflare_block_response(response):
                 raise BetrailLookupError("Betrail request blocked by Cloudflare.")
-            raise BetrailLookupError(f"Betrail catalog failed with HTTP {response.status_code}.")
+            raise BetrailLookupError(
+                f"Betrail catalog failed with HTTP {response.status_code}."
+            )
 
         try:
             payload = response.json()
         except ValueError as exc:
             if self._is_cloudflare_block_response(response):
-                raise BetrailLookupError("Betrail request blocked by Cloudflare.") from exc
-            raise BetrailLookupError("Betrail catalog response was not valid JSON.") from exc
+                raise BetrailLookupError(
+                    "Betrail request blocked by Cloudflare."
+                ) from exc
+            raise BetrailLookupError(
+                "Betrail catalog response was not valid JSON."
+            ) from exc
 
         if not isinstance(payload, list):
             raise BetrailLookupError("Betrail catalog payload was not a list.")
@@ -122,7 +130,7 @@ class BetrailClient:
             return None
         try:
             score = float(level_raw) / 100.0
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
 
         return BetrailCatalogEntry(
@@ -132,7 +140,9 @@ class BetrailClient:
             raw=item,
         )
 
-    def _fetch_catalog_above_threshold(self, *, threshold: float) -> list[BetrailCatalogEntry]:
+    def _fetch_catalog_above_threshold(
+        self, *, threshold: float
+    ) -> list[BetrailCatalogEntry]:
         deduped: dict[str, BetrailCatalogEntry] = {}
         offset = 0
 
@@ -162,5 +172,7 @@ class BetrailClient:
         entries.sort(key=lambda item: item.betrail_score, reverse=True)
         return entries
 
-    def fetch_catalog_above_threshold(self, threshold: float) -> list[BetrailCatalogEntry]:
+    def fetch_catalog_above_threshold(
+        self, threshold: float
+    ) -> list[BetrailCatalogEntry]:
         return self._fetch_catalog_above_threshold(threshold=threshold)

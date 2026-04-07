@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 import unittest
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx

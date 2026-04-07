@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import requests
@@ -108,13 +108,17 @@ class UtmbClient:
 
         return candidates
 
-    def search_same_name_candidates(self, name: str, limit: int = 10) -> list[UtmbMatch]:
+    def search_same_name_candidates(
+        self, name: str, limit: int = 10
+    ) -> list[UtmbMatch]:
         candidates = self._search_candidates(name, limit=limit)
         if not candidates:
             return []
 
         strong_candidates = [
-            item for item in candidates if is_strong_person_name_match(name, item.matched_name)
+            item
+            for item in candidates
+            if is_strong_person_name_match(name, item.matched_name)
         ]
         strong_candidates = [
             UtmbMatch(
@@ -134,7 +138,11 @@ class UtmbClient:
 
         best = max(strong_candidates, key=lambda item: item.match_score)
         target_key = canonical_name(best.matched_name)
-        same_name = [item for item in strong_candidates if canonical_name(item.matched_name) == target_key]
+        same_name = [
+            item
+            for item in strong_candidates
+            if canonical_name(item.matched_name) == target_key
+        ]
         same_name.sort(
             key=lambda item: (
                 item.utmb_index if item.utmb_index is not None else -1.0,

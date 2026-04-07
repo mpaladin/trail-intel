@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import math
+import textwrap
 from datetime import datetime
 from pathlib import Path
-import textwrap
 
 import matplotlib
 
 matplotlib.use("Agg")
 
+import numpy as np
 from matplotlib import dates as mdates
 from matplotlib import patheffects
 from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
-import numpy as np
 
 from trailintel.forecast.map_tiles import fetch_basemap, lonlat_series_to_web_mercator
 from trailintel.forecast.models import ForecastReport
@@ -101,10 +101,7 @@ def render_report(
     fig.text(
         0.5,
         0.012,
-        (
-            "Created with TrailIntel Forecast"
-            f"  •  Source: {report.source_label}"
-        ),
+        (f"Created with TrailIntel Forecast  •  Source: {report.source_label}"),
         ha="center",
         va="bottom",
         fontsize=9,
@@ -152,7 +149,9 @@ def render_temperature_panel(axis, report: ForecastReport) -> None:
     plot_ax = axis.inset_axes([0.085, 0.23, 0.86, 0.58])
 
     timestamps = display_timestamps(report)
-    temperature = np.array([sample.temperature_c for sample in report.samples], dtype=float)
+    temperature = np.array(
+        [sample.temperature_c for sample in report.samples], dtype=float
+    )
     apparent = np.array(
         [sample.apparent_temperature_c for sample in report.samples],
         dtype=float,
@@ -203,7 +202,9 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
     plot_ax.fill_between(timestamps, 0, cloud_cover, color=CLOUD, alpha=0.22, zorder=1)
     plot_ax.plot(timestamps, cloud_cover, color=CLOUD, linewidth=1.0, zorder=2)
     plot_ax.plot(timestamps, probability, color=PROBABILITY, linewidth=1.1, zorder=3)
-    plot_ax.fill_between(timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2)
+    plot_ax.fill_between(
+        timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2
+    )
 
     precipitation_ax = plot_ax.twinx()
     precipitation_ax.fill_between(
@@ -295,8 +296,12 @@ def render_wind_direction_panel(
         route_lats_array = np.array(route_lats, dtype=float)
         x_route, y_route = project_coordinates(route_lons_array, route_lats_array)
         draw_terrain_background(map_ax, report)
-        sample_lons = np.array([sample.sample.lon for sample in report.samples], dtype=float)
-        sample_lats = np.array([sample.sample.lat for sample in report.samples], dtype=float)
+        sample_lons = np.array(
+            [sample.sample.lon for sample in report.samples], dtype=float
+        )
+        sample_lats = np.array(
+            [sample.sample.lat for sample in report.samples], dtype=float
+        )
         x_samples, y_samples = project_coordinates(
             sample_lons,
             sample_lats,
@@ -317,7 +322,9 @@ def render_wind_direction_panel(
         zorder=4,
     )[0]
     route_line.set_path_effects([route_shadow])
-    add_route_wind_arrows(map_ax, x_samples, y_samples, report, arrow_length=arrow_length)
+    add_route_wind_arrows(
+        map_ax, x_samples, y_samples, report, arrow_length=arrow_length
+    )
 
     map_ax.scatter(
         x_route[0],
@@ -369,8 +376,12 @@ def render_wind_panel(axis, report: ForecastReport) -> None:
 
     baseline = max(0.0, math.floor(min(wind.min(), gust.min()) - 1))
     ceiling = math.ceil(max(wind.max(), gust.max()) + 1)
-    plot_ax.fill_between(timestamps, baseline, gust, color="#8c5d17", alpha=0.35, zorder=1)
-    plot_ax.fill_between(timestamps, baseline, wind, color="#72808a", alpha=0.22, zorder=2)
+    plot_ax.fill_between(
+        timestamps, baseline, gust, color="#8c5d17", alpha=0.35, zorder=1
+    )
+    plot_ax.fill_between(
+        timestamps, baseline, wind, color="#72808a", alpha=0.22, zorder=2
+    )
     plot_ax.plot(timestamps, wind, color=WIND, linewidth=1.1, zorder=3)
     plot_ax.plot(timestamps, gust, color=GUST, linewidth=1.0, zorder=4)
 
@@ -391,7 +402,12 @@ def render_elevation_panel(axis, report: ForecastReport) -> None:
 
     timestamps = display_timestamps(report)
     elevation = np.array(
-        [sample.sample.elevation_m if sample.sample.elevation_m is not None else np.nan for sample in report.samples],
+        [
+            sample.sample.elevation_m
+            if sample.sample.elevation_m is not None
+            else np.nan
+            for sample in report.samples
+        ],
         dtype=float,
     )
     if np.all(np.isnan(elevation)):
@@ -402,7 +418,9 @@ def render_elevation_panel(axis, report: ForecastReport) -> None:
     if ceiling <= baseline:
         ceiling = baseline + 100
 
-    plot_ax.fill_between(timestamps, baseline, elevation, color="#7e551a", alpha=0.48, zorder=1)
+    plot_ax.fill_between(
+        timestamps, baseline, elevation, color="#7e551a", alpha=0.48, zorder=1
+    )
     plot_ax.plot(timestamps, elevation, color=ELEVATION, linewidth=1.05, zorder=2)
 
     style_chart_axis(plot_ax, timestamps)
@@ -482,7 +500,9 @@ def style_chart_axis(axis, timestamps: list[datetime]) -> None:
     axis.yaxis.set_major_locator(MaxNLocator(nbins=4))
     ticks = choose_time_ticks(timestamps, max_ticks=6)
     axis.set_xticks(ticks)
-    axis.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M", tz=timestamps[0].tzinfo))
+    axis.xaxis.set_major_formatter(
+        mdates.DateFormatter("%H:%M", tz=timestamps[0].tzinfo)
+    )
     axis.set_xlim(timestamps[0], timestamps[-1])
 
 
@@ -571,7 +591,10 @@ def wrap_header_title(title: str | None) -> list[str]:
         return ["Route Forecast"]
     if len(lines) <= 2:
         return lines
-    return [lines[0], textwrap.shorten(" ".join(lines[1:]), width=26, placeholder="...")]
+    return [
+        lines[0],
+        textwrap.shorten(" ".join(lines[1:]), width=26, placeholder="..."),
+    ]
 
 
 def draw_terrain_background(axis, report: ForecastReport) -> None:

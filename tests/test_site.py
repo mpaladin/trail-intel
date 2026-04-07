@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
 import tempfile
 import unittest
-import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from trailintel.models import AthleteRecord
@@ -13,8 +13,8 @@ from trailintel.site import (
     REPORT_HTML_FILENAME,
     REPORT_JSON_FILENAME,
     REPORT_META_FILENAME,
-    REPORTS_SECTION_DIR,
     REPORT_SNAPSHOT_FILENAME,
+    REPORTS_SECTION_DIR,
     build_report_snapshot,
     export_report_site,
     refresh_site_index,
@@ -57,7 +57,9 @@ class SiteExportTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            out_dir = export_report_site(snapshot=snapshot, records=records, destination=tmp)
+            out_dir = export_report_site(
+                snapshot=snapshot, records=records, destination=tmp
+            )
 
             self.assertTrue((out_dir / REPORT_HTML_FILENAME).exists())
             self.assertTrue((out_dir / REPORT_CSV_FILENAME).exists())
@@ -66,7 +68,9 @@ class SiteExportTests(unittest.TestCase):
             self.assertTrue((out_dir / REPORT_META_FILENAME).exists())
 
             html = (out_dir / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
-            snapshot_json = (out_dir / REPORT_SNAPSHOT_FILENAME).read_text(encoding="utf-8")
+            snapshot_json = (out_dir / REPORT_SNAPSHOT_FILENAME).read_text(
+                encoding="utf-8"
+            )
             meta_json = (out_dir / REPORT_META_FILENAME).read_text(encoding="utf-8")
             self.assertIn("Field Snapshot", html)
             self.assertIn("Leaderboard", html)
@@ -88,14 +92,25 @@ class SiteExportTests(unittest.TestCase):
             self.assertNotIn('"same_name_mode"', snapshot_json)
             self.assertNotIn('"same_name_mode"', meta_json)
 
-    def test_export_report_site_can_use_snapshot_export_rows_without_records(self) -> None:
+    def test_export_report_site_can_use_snapshot_export_rows_without_records(
+        self,
+    ) -> None:
         snapshot = {
             "title": "Saved Snapshot",
             "participants_count": 2,
             "rows_evaluated": 2,
             "qualified_count": 1,
             "strategy": "participant-first",
-            "rows": [{"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "ITRA": "730.0", "Betrail": "74.5", "Combined": "739.0"}],
+            "rows": [
+                {
+                    "Rank": 1,
+                    "Athlete": "Alice",
+                    "UTMB": "745.0",
+                    "ITRA": "730.0",
+                    "Betrail": "74.5",
+                    "Combined": "739.0",
+                }
+            ],
             "export_rows": [
                 {"Rank": 1, "Athlete": "Alice", "UTMB": "745.0", "Betrail": "74.5"},
                 {"Rank": 2, "Athlete": "Bob", "UTMB": "-"},
@@ -104,11 +119,19 @@ class SiteExportTests(unittest.TestCase):
             "utmb_scores": [745.0],
             "itra_scores": [730.0],
             "betrail_scores": [74.5],
-            "score_summary": {"participants": 2, "with_utmb": 1, "with_itra": 1, "with_betrail": 1, "with_any": 1},
+            "score_summary": {
+                "participants": 2,
+                "with_utmb": 1,
+                "with_itra": 1,
+                "with_betrail": 1,
+                "with_any": 1,
+            },
         }
 
         with tempfile.TemporaryDirectory() as tmp:
-            out_dir = export_report_site(snapshot=snapshot, records=None, destination=tmp)
+            out_dir = export_report_site(
+                snapshot=snapshot, records=None, destination=tmp
+            )
             csv_text = (out_dir / REPORT_CSV_FILENAME).read_text(encoding="utf-8")
             json_text = (out_dir / REPORT_JSON_FILENAME).read_text(encoding="utf-8")
 
@@ -121,7 +144,9 @@ class SiteExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             race_dir = root / REPORTS_SECTION_DIR / "trail-du-test" / "20260404-120000"
-            forecast_dir = root / FORECASTS_SECTION_DIR / "dolomite-dawn" / "20260701-054500"
+            forecast_dir = (
+                root / FORECASTS_SECTION_DIR / "dolomite-dawn" / "20260701-054500"
+            )
             race_dir.mkdir(parents=True, exist_ok=True)
             forecast_dir.mkdir(parents=True, exist_ok=True)
 
@@ -161,8 +186,12 @@ class SiteExportTests(unittest.TestCase):
 
             refresh_site_index(root)
 
-            reports_index = (root / REPORTS_SECTION_DIR / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
-            forecasts_index = (root / FORECASTS_SECTION_DIR / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
+            reports_index = (
+                root / REPORTS_SECTION_DIR / REPORT_HTML_FILENAME
+            ).read_text(encoding="utf-8")
+            forecasts_index = (
+                root / FORECASTS_SECTION_DIR / REPORT_HTML_FILENAME
+            ).read_text(encoding="utf-8")
             landing_index = (root / REPORT_HTML_FILENAME).read_text(encoding="utf-8")
 
             self.assertIn("Trail du Test 2026", reports_index)
@@ -176,10 +205,19 @@ class SiteExportTests(unittest.TestCase):
             self.assertIn("Published Forecasts", forecasts_index)
             self.assertIn("Back to home", reports_index)
             self.assertIn("Back to home", forecasts_index)
-            self.assertIn('href="trail-du-test/20260404-120000/index.html"', reports_index)
-            self.assertNotIn('href="reports/trail-du-test/20260404-120000/index.html"', reports_index)
-            self.assertIn('href="dolomite-dawn/20260701-054500/index.html"', forecasts_index)
-            self.assertNotIn('href="forecasts/dolomite-dawn/20260701-054500/index.html"', forecasts_index)
+            self.assertIn(
+                'href="trail-du-test/20260404-120000/index.html"', reports_index
+            )
+            self.assertNotIn(
+                'href="reports/trail-du-test/20260404-120000/index.html"', reports_index
+            )
+            self.assertIn(
+                'href="dolomite-dawn/20260701-054500/index.html"', forecasts_index
+            )
+            self.assertNotIn(
+                'href="forecasts/dolomite-dawn/20260701-054500/index.html"',
+                forecasts_index,
+            )
 
 
 if __name__ == "__main__":

@@ -104,7 +104,9 @@ class ItraResilienceTests(unittest.TestCase):
         )
 
         self.assertEqual(mock_itra_client.return_value.search.call_count, 0)
-        self.assertIn("ITRA skipped because UTMB 655.0 <= threshold 700.0", records[0].notes)
+        self.assertIn(
+            "ITRA skipped because UTMB 655.0 <= threshold 700.0", records[0].notes
+        )
 
     @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")

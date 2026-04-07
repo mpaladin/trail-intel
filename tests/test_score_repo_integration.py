@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
 import tempfile
 import unittest
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 from trailintel.cli import _enrich_records
@@ -87,7 +87,9 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
         self.assertEqual(records[0].betrail_score, 74.5)
         self.assertEqual(mock_utmb_client.return_value.search.call_count, 0)
         self.assertEqual(mock_itra_client.return_value.search.call_count, 0)
-        self.assertEqual(mock_betrail_client.return_value.fetch_catalog_above_threshold.call_count, 0)
+        self.assertEqual(
+            mock_betrail_client.return_value.fetch_catalog_above_threshold.call_count, 0
+        )
 
     @patch("trailintel.cli.BetrailClient")
     @patch("trailintel.cli.ItraClient")
@@ -147,7 +149,9 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
 
             reloaded = AthleteScoreRepo(repo_path)
             reloaded.load()
-            lookup = reloaded.get_provider_snapshot(query_name="Bob Runner", provider="utmb")
+            lookup = reloaded.get_provider_snapshot(
+                query_name="Bob Runner", provider="utmb"
+            )
 
         assert lookup is not None
         self.assertEqual(lookup.score, 755.0)
@@ -234,7 +238,9 @@ class ScoreRepoIntegrationTests(unittest.TestCase):
 
             reloaded = AthleteScoreRepo(repo_path)
             reloaded.load()
-            lookup = reloaded.get_provider_snapshot(query_name="Low Runner", provider="utmb")
+            lookup = reloaded.get_provider_snapshot(
+                query_name="Low Runner", provider="utmb"
+            )
 
         self.assertEqual(records[0].utmb_index, 650.0)
         assert lookup is not None

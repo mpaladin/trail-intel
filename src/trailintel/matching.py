@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from functools import lru_cache
 import re
 import unicodedata
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 
 def deaccent_text(text: str) -> str:
