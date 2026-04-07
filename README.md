@@ -32,7 +32,6 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - Optional manual ITRA overrides file when live ITRA is blocked
 - Optional authenticated ITRA requests via cookie (`--itra-cookie` or `ITRA_COOKIE`)
 - Optional Git-backed athlete score repo cache (`--score-repo` or `TRAILINTEL_SCORE_REPO`)
-- Separate `trailintel-score` CLI to seed and maintain the score repo
 - Separate `trailintel-forecast` CLI for GPX weather reports
 - Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
 
@@ -49,12 +48,6 @@ Primary CLI command:
 
 ```bash
 trailintel --help
-```
-
-Score repo maintenance CLI:
-
-```bash
-trailintel-score --help
 ```
 
 Forecast CLI command:
@@ -238,16 +231,6 @@ When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
 - writes back encountered athletes, including below-threshold runners
 - stores one JSON file per athlete under `athletes/<shard>/<athlete_id>.json`
 - writes run summaries under `runs/<year>/`
-
-Seed the repo from Betrail athletes above `68.0` and optionally fill UTMB/ITRA:
-
-```bash
-trailintel-score seed-betrail \
-  --repo /path/to/trail-intel-score \
-  --threshold 68 \
-  --fill-utmb \
-  --fill-itra
-```
 
 ## Optional ITRA cookie
 
