@@ -12,6 +12,13 @@ from trailintel.site import (
     FORECAST_REPORT_KIND,
     REPORT_HTML_FILENAME,
     REPORT_META_FILENAME,
+    _format_compact_timestamp,
+    _format_display_datetime,
+    _format_duration_label,
+    _render_action_link,
+    _render_document,
+    _render_meta_row,
+    _render_metric_cards,
     copy_bundle_to_targets,
 )
 
@@ -120,36 +127,21 @@ def build_forecast_metadata(snapshot: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _meta_line(snapshot: dict[str, object]) -> str:
-    generated = str(snapshot.get("generated_at") or "").strip()
-    timezone_name = str(snapshot.get("timezone") or "").strip()
-    source_label = str(snapshot.get("source_label") or "").strip()
-    bits = [bit for bit in (generated, timezone_name, source_label) if bit]
-    if not bits:
-        return ""
-    return '<p class="meta-line">' + " | ".join(html.escape(bit) for bit in bits) + "</p>"
-
-
-def _summary_card(label: str, value: str) -> str:
-    return (
-        '<div class="metric-card">'
-        f'<div class="metric-label">{html.escape(label)}</div>'
-        f'<div class="metric-value">{html.escape(value)}</div>'
-        "</div>"
-    )
-
-
 def _sample_rows_table(rows: list[dict[str, object]]) -> str:
     if not rows:
         return '<div class="empty-state">No forecast samples available.</div>'
 
     body_rows: list[str] = []
     for row in rows:
+        timestamp = _format_compact_timestamp(
+            row.get("timestamp"),
+            default=str(row.get("timestamp", "")),
+        )
         body_rows.append(
             "".join(
                 [
                     "<tr>",
-                    f"<td>{html.escape(str(row.get('timestamp', '')))}</td>",
+                    f"<td class=\"score-cell\">{html.escape(timestamp)}</td>",
                     f"<td>{html.escape(str(row.get('distance_km', '')))}</td>",
                     f"<td>{html.escape(str(row.get('elevation_m', '')))}</td>",
                     f"<td>{html.escape(str(row.get('temperature_c', '')))}</td>",
@@ -183,7 +175,7 @@ def render_forecast_html(
     gpx_filename: str = FORECAST_GPX_FILENAME,
     json_filename: str = FORECAST_JSON_FILENAME,
 ) -> str:
-    title = html.escape(str(snapshot.get("title", "Route Forecast")))
+    title = str(snapshot.get("title", "Route Forecast"))
     summary = snapshot.get("summary", {})
     if not isinstance(summary, dict):
         summary = {}
@@ -191,33 +183,45 @@ def render_forecast_html(
     if not isinstance(sample_rows, list):
         sample_rows = []
 
-    cards = "".join(
+    start_label = _format_display_datetime(snapshot.get("start_time"), default="Start time unavailable")
+    generated_label = _format_display_datetime(
+        snapshot.get("generated_at"),
+        convert_to_utc=True,
+    )
+    duration_label = _format_duration_label(snapshot.get("duration"))
+    distance_label = f"{float(snapshot.get('route_distance_km', 0.0) or 0.0):.2f} km"
+    ascent_label = f"{float(snapshot.get('route_ascent_m', 0.0) or 0.0):.0f} m"
+    source_label = str(snapshot.get("source_label") or "").strip()
+    timezone_name = str(snapshot.get("timezone") or "").strip()
+    wettest_label = _format_compact_timestamp(summary.get("wettest_time"), default="Unknown")
+    cards = _render_metric_cards(
         [
-            _summary_card(
-                "Start",
-                str(snapshot.get("start_time", "")),
-            ),
-            _summary_card("Duration", str(snapshot.get("duration", ""))),
-            _summary_card("Distance", f"{float(snapshot.get('route_distance_km', 0.0) or 0.0):.2f} km"),
-            _summary_card("Ascent", f"{float(snapshot.get('route_ascent_m', 0.0) or 0.0):.0f} m"),
-            _summary_card(
+            ("Start", start_label, timezone_name or None),
+            ("Duration", duration_label or str(snapshot.get("duration", "")), "Planned route duration"),
+            ("Distance", distance_label, "Total route distance"),
+            ("Ascent", ascent_label, "Estimated climbing"),
+            (
                 "Temperature",
                 (
-                    f"{float(summary.get('temperature_min_c', 0.0) or 0.0):.1f} to "
-                    f"{float(summary.get('temperature_max_c', 0.0) or 0.0):.1f} C"
+                    f"{float(summary.get('temperature_min_c', 0.0) or 0.0):.1f}C to "
+                    f"{float(summary.get('temperature_max_c', 0.0) or 0.0):.1f}C"
                 ),
+                "Expected route-wide range",
             ),
-            _summary_card("Max Wind", f"{float(summary.get('wind_max_kph', 0.0) or 0.0):.1f} km/h"),
-            _summary_card(
-                "Estimated Rain",
+            (
+                "Max wind",
+                f"{float(summary.get('wind_max_kph', 0.0) or 0.0):.1f} km/h",
+                "Peak forecast wind speed",
+            ),
+            (
+                "Estimated rain",
                 f"{float(summary.get('precipitation_total_mm', 0.0) or 0.0):.1f} mm",
+                "Total route precipitation",
             ),
-            _summary_card(
-                "Wettest Segment",
-                (
-                    f"{summary.get('wettest_time', '')} "
-                    f"({float(summary.get('wettest_probability_pct', 0.0) or 0.0):.0f}%)"
-                ).strip(),
+            (
+                "Wettest segment",
+                wettest_label,
+                f"{float(summary.get('wettest_probability_pct', 0.0) or 0.0):.0f}% rain probability",
             ),
         ]
     )
@@ -225,86 +229,57 @@ def render_forecast_html(
     png_href = html.escape(png_filename, quote=True)
     gpx_href = html.escape(gpx_filename, quote=True)
     json_href = html.escape(json_filename, quote=True)
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{title}</title>
-  <style>
-    :root {{
-      --bg: #f5f0e8;
-      --panel: #fffdfa;
-      --panel-soft: #f7f3ec;
-      --text: #1c1f1a;
-      --muted: #5d5e54;
-      --accent: #0e5b85;
-      --accent-soft: #d7ecf8;
-      --border: #ddd3c5;
-      --shadow: 0 16px 40px rgba(32, 26, 17, 0.08);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; color: var(--text); background: radial-gradient(circle at top, #fbf7ef 0%, var(--bg) 60%, #ebe1d4 100%); }}
-    a {{ color: var(--accent); }}
-    .page {{ max-width: 1280px; margin: 0 auto; padding: 30px 20px 44px; }}
-    .hero {{ background: linear-gradient(135deg, rgba(14,91,133,0.12), rgba(19,38,57,0.1)); border: 1px solid rgba(14,91,133,0.12); border-radius: 24px; padding: 26px; box-shadow: var(--shadow); }}
-    .hero h1 {{ margin: 0 0 8px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.08; }}
-    .hero p {{ margin: 0; color: var(--muted); }}
-    .meta-line {{ margin-top: 10px; color: var(--muted); }}
-    .download-row {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }}
-    .download-link {{ display: inline-flex; align-items: center; justify-content: center; min-width: 180px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; text-decoration: none; font-weight: 700; box-shadow: 0 10px 24px rgba(0,0,0,0.05); }}
-    .metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; }}
-    .metric-card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 16px; box-shadow: 0 10px 26px rgba(0,0,0,0.04); }}
-    .metric-label {{ color: var(--muted); font-size: 0.9rem; }}
-    .metric-value {{ margin-top: 6px; font-size: 1.2rem; font-weight: 700; line-height: 1.35; }}
-    .panel {{ margin-top: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 24px; padding: 22px; box-shadow: var(--shadow); }}
-    .panel h2 {{ margin: 0 0 14px; font-size: 1.35rem; }}
-    .section-caption {{ margin-top: -4px; color: var(--muted); }}
-    .chart-frame {{ background: var(--panel-soft); border: 1px solid var(--border); border-radius: 18px; padding: 12px; }}
-    .chart-frame img {{ display: block; width: 100%; border-radius: 12px; }}
-    .results-table {{ width: 100%; border-collapse: collapse; font-size: 0.93rem; }}
-    .results-table th, .results-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }}
-    .results-table th {{ font-size: 0.82rem; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); background: #faf6ef; position: sticky; top: 0; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid var(--border); border-radius: 18px; background: var(--panel); }}
-    .empty-state {{ padding: 16px; border: 1px dashed var(--border); border-radius: 16px; color: var(--muted); background: rgba(255,255,255,0.4); }}
-    @media (max-width: 760px) {{
-      .page {{ padding: 18px 14px 28px; }}
-      .hero {{ padding: 22px; }}
-      .results-table th, .results-table td {{ padding: 8px 10px; }}
-    }}
-  </style>
-</head>
-<body>
-  <main class="page">
+    lead = f"Weather outlook for a {distance_label} route starting {start_label}."
+    meta_bits = []
+    if generated_label:
+        meta_bits.append(f"Published {html.escape(generated_label)}")
+    if timezone_name:
+        meta_bits.append(html.escape(timezone_name))
+    if source_label:
+        meta_bits.append(html.escape(source_label))
+    body_html = f"""
     <section class="hero">
-      <h1>{title}</h1>
-      <p>Static route forecast generated from the TrailIntel forecast pipeline.</p>
-      {_meta_line(snapshot)}
-      <div class="download-row">
-        <a class="download-link" href="{png_href}">Download PNG</a>
-        <a class="download-link" href="{gpx_href}">Download GPX</a>
-        <a class="download-link" href="{json_href}">Download JSON</a>
+      <p class="eyebrow">Route Forecast</p>
+      <h1>{html.escape(title)}</h1>
+      <p class="hero-lead">{html.escape(lead)}</p>
+      {_render_meta_row(meta_bits)}
+      <div class="action-row">
+        {_render_action_link(png_href, "Download PNG", primary=True)}
+        {_render_action_link(gpx_href, "Download GPX")}
+        {_render_action_link(json_href, "Download JSON")}
       </div>
-      <div class="metrics">{cards}</div>
+      <div class="metric-grid">{cards}</div>
     </section>
 
-    <section class="panel">
-      <h2>Forecast Overview</h2>
-      <p class="section-caption">The PNG summary preserves the original chart layout in a TrailIntel-hosted report.</p>
-      <div class="chart-frame"><img src="{png_href}" alt="Forecast chart for {title}"></div>
-    </section>
+    <section class="section-stack">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Forecast Overview</h2>
+          <span class="pill">Hosted PNG summary</span>
+        </div>
+        <p class="section-caption">The full rendered route forecast chart preserved as a static image for quick sharing.</p>
+        <div class="chart-frame"><img src="{png_href}" alt="Forecast chart for {html.escape(title)}"></div>
+      </section>
 
-    <section class="panel">
-      <h2>Forecast Samples</h2>
-      <p class="section-caption">Per-sample weather values aligned to the route timeline.</p>
-      {_sample_rows_table(sample_rows)}
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Route Timeline</h2>
+          <span class="pill">Per-sample weather values</span>
+        </div>
+        <p class="section-caption">Aligned weather samples across the route timeline, formatted for quick scanning on desktop and mobile.</p>
+        {_sample_rows_table(sample_rows)}
+      </section>
     </section>
-  </main>
-</body>
-</html>
-"""
+    """
+    return _render_document(
+        title=title,
+        theme="forecast",
+        active_nav="forecasts",
+        home_href="../../../index.html",
+        reports_href="../../../reports/index.html",
+        forecasts_href="../../index.html",
+        body_html=body_html,
+    )
 
 
 def export_forecast_site(

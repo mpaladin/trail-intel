@@ -22,6 +22,663 @@ RACE_REPORT_KIND = "race"
 FORECAST_REPORT_KIND = "forecast"
 REPORTS_SECTION_DIR = "reports"
 FORECASTS_SECTION_DIR = "forecasts"
+HEADING_FONT_STACK = '"Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif'
+BODY_FONT_STACK = '"Avenir Next", "Segoe UI", sans-serif'
+
+_THEME_TOKENS: dict[str, dict[str, str]] = {
+    "hub": {
+        "accent": "#8b5e34",
+        "accent_strong": "#70461f",
+        "accent_soft": "rgba(139, 94, 52, 0.16)",
+        "hero_start": "rgba(139, 94, 52, 0.16)",
+        "hero_end": "rgba(30, 107, 96, 0.16)",
+        "pill_bg": "rgba(139, 94, 52, 0.12)",
+        "pill_text": "#70461f",
+    },
+    "race": {
+        "accent": "#0b6b5f",
+        "accent_strong": "#084f46",
+        "accent_soft": "rgba(11, 107, 95, 0.16)",
+        "hero_start": "rgba(11, 107, 95, 0.14)",
+        "hero_end": "rgba(155, 101, 40, 0.16)",
+        "pill_bg": "rgba(11, 107, 95, 0.12)",
+        "pill_text": "#084f46",
+    },
+    "forecast": {
+        "accent": "#0e5b85",
+        "accent_strong": "#0b4462",
+        "accent_soft": "rgba(14, 91, 133, 0.16)",
+        "hero_start": "rgba(14, 91, 133, 0.14)",
+        "hero_end": "rgba(31, 59, 92, 0.16)",
+        "pill_bg": "rgba(14, 91, 133, 0.12)",
+        "pill_text": "#0b4462",
+    },
+}
+
+
+def _month_label(month: int) -> str:
+    labels = (
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    )
+    if 1 <= month <= len(labels):
+        return labels[month - 1]
+    return "Unknown"
+
+
+def _format_display_datetime(
+    value: object,
+    *,
+    convert_to_utc: bool = False,
+    default: str = "",
+) -> str:
+    dt = value if isinstance(value, datetime) else _parse_iso_timestamp(value)
+    if dt is None:
+        return default
+    if convert_to_utc:
+        dt = dt.astimezone(UTC)
+    zone = dt.tzname() or "UTC"
+    return f"{_month_label(dt.month)} {dt.day}, {dt.year} at {dt:%H:%M} {zone}"
+
+
+def _format_compact_timestamp(value: object, *, default: str = "") -> str:
+    dt = value if isinstance(value, datetime) else _parse_iso_timestamp(value)
+    if dt is None:
+        return default
+    return f"{_month_label(dt.month)} {dt.day}, {dt:%H:%M}"
+
+
+def _format_duration_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parts = text.split(":")
+    if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
+        return text
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    chunks: list[str] = []
+    if hours:
+        chunks.append(f"{hours}h")
+    if minutes or not chunks:
+        chunks.append(f"{minutes:02d}m")
+    if seconds:
+        chunks.append(f"{seconds:02d}s")
+    return " ".join(chunks)
+
+
+def _format_threshold_label(value: object) -> str:
+    if value is None or value == "":
+        return "Not set"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:.1f}"
+
+
+def _friendly_strategy_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Participant First"
+    return text.replace("-", " ").title()
+
+
+def _render_meta_row(bits: list[str]) -> str:
+    cleaned = [bit for bit in bits if bit]
+    if not cleaned:
+        return ""
+    chips = "".join(f'<span class="meta-chip">{bit}</span>' for bit in cleaned)
+    return f'<div class="meta-row">{chips}</div>'
+
+
+def _render_action_link(href: str, label: str, *, primary: bool = False) -> str:
+    class_name = "action-link primary" if primary else "action-link secondary"
+    return f'<a class="{class_name}" href="{html.escape(href, quote=True)}">{html.escape(label)}</a>'
+
+
+def _render_metric_cards(items: list[tuple[str, str, str | None]]) -> str:
+    cards: list[str] = []
+    for label, value, subvalue in items:
+        sub_markup = (
+            f'<div class="metric-subvalue">{html.escape(subvalue)}</div>'
+            if subvalue
+            else ""
+        )
+        cards.append(
+            '<div class="metric-card">'
+            f'<div class="metric-label">{html.escape(label)}</div>'
+            f'<div class="metric-value">{html.escape(value)}</div>'
+            f"{sub_markup}"
+            "</div>"
+        )
+    return "".join(cards)
+
+
+def _render_pills(items: list[str]) -> str:
+    cleaned = [item for item in items if item]
+    if not cleaned:
+        return ""
+    return "".join(f'<span class="pill">{html.escape(item)}</span>' for item in cleaned)
+
+
+def _render_site_nav(
+    *,
+    home_href: str,
+    reports_href: str,
+    forecasts_href: str,
+    active: str,
+) -> str:
+    items = [
+        ("home", "Home", home_href),
+        ("reports", "Race Reports", reports_href),
+        ("forecasts", "Forecasts", forecasts_href),
+    ]
+    links: list[str] = []
+    for key, label, href in items:
+        class_name = "nav-link is-active" if key == active else "nav-link"
+        current = ' aria-current="page"' if key == active else ""
+        links.append(
+            f'<a class="{class_name}" href="{html.escape(href, quote=True)}"{current}>{html.escape(label)}</a>'
+        )
+    return (
+        '<nav class="site-nav" aria-label="Primary">'
+        f'<a class="nav-brand" href="{html.escape(home_href, quote=True)}">TrailIntel Pages</a>'
+        f'<div class="nav-links">{"".join(links)}</div>'
+        "</nav>"
+    )
+
+
+def _shared_page_styles(theme: str) -> str:
+    tokens = _THEME_TOKENS[theme]
+    return f"""
+    :root {{
+      color-scheme: light;
+      --page-bg: #f3ece2;
+      --panel: rgba(255, 252, 247, 0.92);
+      --panel-strong: #fffdf9;
+      --panel-soft: #f8f2ea;
+      --text: #1f1c18;
+      --muted: #6a6056;
+      --line: rgba(117, 98, 74, 0.20);
+      --line-strong: rgba(117, 98, 74, 0.32);
+      --shadow: 0 24px 64px rgba(35, 24, 9, 0.10);
+      --accent: {tokens["accent"]};
+      --accent-strong: {tokens["accent_strong"]};
+      --accent-soft: {tokens["accent_soft"]};
+      --hero-start: {tokens["hero_start"]};
+      --hero-end: {tokens["hero_end"]};
+      --pill-bg: {tokens["pill_bg"]};
+      --pill-text: {tokens["pill_text"]};
+      --warning-bg: #fff3d4;
+      --warning-text: #734700;
+      --heading-font: {HEADING_FONT_STACK};
+      --body-font: {BODY_FONT_STACK};
+      font-family: var(--body-font);
+    }}
+    * {{ box-sizing: border-box; }}
+    html {{ scroll-behavior: smooth; }}
+    body {{
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.72), transparent 28%),
+        radial-gradient(circle at top right, var(--accent-soft), transparent 32%),
+        radial-gradient(circle at top, #fbf7f1 0%, var(--page-bg) 54%, #e7dccb 100%);
+    }}
+    a {{
+      color: var(--accent-strong);
+      text-decoration: none;
+    }}
+    a:hover {{ text-decoration: underline; }}
+    .page {{
+      max-width: 1260px;
+      margin: 0 auto;
+      padding: 22px 18px 56px;
+    }}
+    .site-nav {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }}
+    .nav-brand {{
+      font-family: var(--heading-font);
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }}
+    .nav-links {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .nav-link {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      color: var(--text);
+      font-weight: 600;
+    }}
+    .nav-link:hover {{
+      text-decoration: none;
+      border-color: var(--accent);
+    }}
+    .nav-link.is-active {{
+      color: #ffffff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      border-color: transparent;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10);
+    }}
+    .hero {{
+      position: relative;
+      overflow: hidden;
+      padding: 34px 32px;
+      border-radius: 30px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, var(--hero-start), var(--hero-end)),
+        var(--panel);
+      box-shadow: var(--shadow);
+    }}
+    .hero::after {{
+      content: "";
+      position: absolute;
+      inset: auto -48px -80px auto;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, var(--accent-soft) 0%, transparent 72%);
+      opacity: 0.9;
+      pointer-events: none;
+    }}
+    .eyebrow {{
+      margin: 0 0 10px;
+      color: var(--accent-strong);
+      font-size: 0.77rem;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }}
+    h1, h2, h3 {{
+      font-family: var(--heading-font);
+      letter-spacing: -0.01em;
+    }}
+    .hero h1 {{
+      margin: 0;
+      max-width: 14ch;
+      font-size: clamp(2.2rem, 4vw, 4.1rem);
+      line-height: 0.96;
+    }}
+    .hero-lead {{
+      margin: 14px 0 0;
+      max-width: 64ch;
+      color: var(--muted);
+      font-size: 1.04rem;
+      line-height: 1.6;
+    }}
+    .meta-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 12px;
+      margin-top: 18px;
+    }}
+    .meta-chip {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.60);
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.35;
+    }}
+    .action-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }}
+    .action-link {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel-strong);
+      color: var(--text);
+      font-weight: 700;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.06);
+    }}
+    .action-link:hover {{
+      text-decoration: none;
+      border-color: var(--accent);
+    }}
+    .action-link.primary {{
+      color: #ffffff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+    }}
+    .metric-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }}
+    .metric-card {{
+      min-height: 122px;
+      padding: 16px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.05);
+    }}
+    .metric-label {{
+      color: var(--muted);
+      font-size: 0.84rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    .metric-value {{
+      margin-top: 10px;
+      font-size: clamp(1.3rem, 2vw, 1.9rem);
+      line-height: 1.1;
+      font-weight: 800;
+    }}
+    .metric-subvalue {{
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.94rem;
+      line-height: 1.45;
+    }}
+    .section-stack {{
+      display: grid;
+      gap: 20px;
+      margin-top: 24px;
+    }}
+    .panel {{
+      padding: 24px;
+      border-radius: 28px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }}
+    .panel-head {{
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px 16px;
+      margin-bottom: 14px;
+    }}
+    .panel h2 {{
+      margin: 0;
+      font-size: clamp(1.5rem, 2vw, 2.05rem);
+      line-height: 1.02;
+    }}
+    .section-caption {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+      line-height: 1.55;
+    }}
+    .collection-grid {{
+      display: grid;
+      gap: 16px;
+    }}
+    .collection-card {{
+      padding: 22px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.05);
+    }}
+    .card-top {{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }}
+    .card-title {{
+      margin: 0;
+      font-size: clamp(1.4rem, 2vw, 1.9rem);
+      line-height: 1.04;
+    }}
+    .card-copy {{
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }}
+    .card-meta {{
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }}
+    .pill-row {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--pill-bg);
+      color: var(--pill-text);
+      font-size: 0.88rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }}
+    .warning {{
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(115, 71, 0, 0.20);
+      background: var(--warning-bg);
+      color: var(--warning-text);
+      line-height: 1.55;
+    }}
+    .charts {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }}
+    .chart-card {{
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+    }}
+    .chart-card h3 {{
+      margin: 0 0 14px;
+      font-size: 1.16rem;
+    }}
+    .hist-row {{
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr) 52px;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+    }}
+    .hist-label,
+    .hist-count {{
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+    }}
+    .hist-bar-track {{
+      min-height: 28px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: var(--panel-soft);
+    }}
+    .hist-bar {{
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 10px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #ffffff;
+      font-size: 0.84rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }}
+    .hist-bar-empty {{
+      background: transparent;
+    }}
+    .table-wrap {{
+      overflow-x: auto;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+    }}
+    .results-table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.94rem;
+    }}
+    .results-table th,
+    .results-table td {{
+      padding: 11px 12px;
+      border-bottom: 1px solid rgba(117, 98, 74, 0.14);
+      text-align: left;
+      vertical-align: top;
+    }}
+    .results-table th {{
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #fbf6ef;
+      color: var(--muted);
+      font-size: 0.79rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }}
+    .results-table tbody tr:nth-child(even) {{
+      background: rgba(248, 242, 234, 0.65);
+    }}
+    .rank-cell,
+    .score-cell {{
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }}
+    .athlete-cell strong {{
+      display: inline-block;
+      font-size: 1rem;
+    }}
+    .supporting-cell,
+    .link-cell,
+    .notes-cell {{
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }}
+    .notes-cell {{
+      min-width: 180px;
+    }}
+    .compact-table {{
+      max-width: 480px;
+    }}
+    .chart-frame {{
+      padding: 14px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+    }}
+    .chart-frame img {{
+      display: block;
+      width: 100%;
+      border-radius: 14px;
+    }}
+    .empty-state {{
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px dashed var(--line-strong);
+      background: rgba(255, 255, 255, 0.45);
+      color: var(--muted);
+      line-height: 1.5;
+    }}
+    @media (max-width: 900px) {{
+      .page {{ padding: 16px 12px 34px; }}
+      .site-nav {{ flex-direction: column; align-items: flex-start; }}
+      .hero {{ padding: 26px 22px; }}
+      .panel {{ padding: 20px; }}
+      .card-top {{ flex-direction: column; }}
+      .hist-row {{ grid-template-columns: 72px minmax(0, 1fr) 42px; }}
+    }}
+    @media (max-width: 640px) {{
+      .hero h1 {{ max-width: none; }}
+      .meta-chip {{ white-space: normal; }}
+      .results-table th,
+      .results-table td {{ padding: 9px 10px; }}
+    }}
+    """
+
+
+def _render_document(
+    *,
+    title: str,
+    theme: str,
+    active_nav: str,
+    home_href: str,
+    reports_href: str,
+    forecasts_href: str,
+    body_html: str,
+) -> str:
+    safe_title = html.escape(title)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{safe_title}</title>
+  <style>
+    {_shared_page_styles(theme)}
+  </style>
+</head>
+<body>
+  <main class="page">
+    {_render_site_nav(
+        home_href=home_href,
+        reports_href=reports_href,
+        forecasts_href=forecasts_href,
+        active=active_nav,
+    )}
+    {body_html}
+  </main>
+</body>
+</html>
+"""
 
 
 def _score_fmt(value: float | None) -> str:
@@ -179,7 +836,6 @@ def build_report_snapshot(
     qualified_records: list[AthleteRecord],
     participants_count: int,
     strategy: str,
-    same_name_mode: str,
     top: int,
     sort_by: str,
     race_url: str = "",
@@ -201,7 +857,6 @@ def build_report_snapshot(
         "rows_evaluated": len(all_records),
         "qualified_count": len(qualified_records),
         "strategy": strategy,
-        "same_name_mode": same_name_mode,
         "rows": records_to_rows(ranked_qualified, top=max(1, top)),
         "export_rows": records_to_rows(ranked_all, top=len(ranked_all)),
         "no_result_names": no_result_names,
@@ -240,19 +895,19 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
             "".join(
                 [
                     "<tr>",
-                    f"<td>{int(row.get('Rank', 0))}</td>",
-                    f"<td>{html.escape(str(row.get('Athlete', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('UTMB', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('ITRA', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('Betrail', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('Combined', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('UTMB Matched Name', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('ITRA Matched Name', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('Betrail Matched Name', '')))}</td>",
-                    f"<td>{utmb_link}</td>",
-                    f"<td>{itra_link}</td>",
-                    f"<td>{betrail_link}</td>",
-                    f"<td>{html.escape(str(row.get('Notes', '')))}</td>",
+                    f'<td class="rank-cell">{int(row.get("Rank", 0))}</td>',
+                    f'<td class="athlete-cell"><strong>{html.escape(str(row.get("Athlete", "")))}</strong></td>',
+                    f'<td class="score-cell">{html.escape(str(row.get("UTMB", "")))}</td>',
+                    f'<td class="score-cell">{html.escape(str(row.get("ITRA", "")))}</td>',
+                    f'<td class="score-cell">{html.escape(str(row.get("Betrail", "")))}</td>',
+                    f'<td class="score-cell">{html.escape(str(row.get("Combined", "")))}</td>',
+                    f'<td class="supporting-cell">{html.escape(str(row.get("UTMB Matched Name", "")))}</td>',
+                    f'<td class="supporting-cell">{html.escape(str(row.get("ITRA Matched Name", "")))}</td>',
+                    f'<td class="supporting-cell">{html.escape(str(row.get("Betrail Matched Name", "")))}</td>',
+                    f'<td class="link-cell">{utmb_link or "&mdash;"}</td>',
+                    f'<td class="link-cell">{itra_link or "&mdash;"}</td>',
+                    f'<td class="link-cell">{betrail_link or "&mdash;"}</td>',
+                    f'<td class="notes-cell">{html.escape(str(row.get("Notes", ""))) or "&mdash;"}</td>',
                     "</tr>",
                 ]
             )
@@ -262,8 +917,8 @@ def _render_top_rows_table(rows: list[dict[str, object]]) -> str:
             '<div class="table-wrap"><table class="results-table">',
             "<thead><tr>",
             "<th>Rank</th><th>Athlete</th><th>UTMB</th><th>ITRA</th><th>Betrail</th><th>Combined</th>",
-            "<th>UTMB Matched Name</th><th>ITRA Matched Name</th><th>Betrail Matched Name</th>",
-            "<th>UTMB Profile</th><th>ITRA Profile</th><th>Betrail Profile</th><th>Notes</th>",
+            "<th>UTMB Match</th><th>ITRA Match</th><th>Betrail Match</th>",
+            "<th>UTMB Link</th><th>ITRA Link</th><th>Betrail Link</th><th>Notes</th>",
             "</tr></thead><tbody>",
             "".join(table_rows),
             "</tbody></table></div>",
@@ -312,8 +967,8 @@ def _render_histogram(title: str, scores: list[float]) -> str:
 def _render_no_result_section(no_result_names: list[str]) -> str:
     if not no_result_names:
         return (
-            '<section class="panel"><h2>No result on UTMB, ITRA, and Betrail</h2>'
-            '<div class="empty-state">All participants matched at least one provider.</div></section>'
+            '<section class="panel"><div class="panel-head"><h2>Unmatched Athletes</h2></div>'
+            '<div class="empty-state">Every participant matched at least one provider.</div></section>'
         )
 
     rows = "".join(
@@ -321,8 +976,8 @@ def _render_no_result_section(no_result_names: list[str]) -> str:
         for name in no_result_names
     )
     return (
-        '<section class="panel"><h2>No result on UTMB, ITRA, and Betrail</h2>'
-        f'<p class="section-caption">{len(no_result_names)} participant(s) had no match on any provider.</p>'
+        '<section class="panel"><div class="panel-head"><h2>Unmatched Athletes</h2></div>'
+        f'<p class="section-caption">{len(no_result_names)} participant(s) did not match UTMB, ITRA, or Betrail.</p>'
         '<div class="table-wrap compact-table"><table class="results-table">'
         '<thead><tr><th>Athlete</th></tr></thead><tbody>'
         f"{rows}</tbody></table></div></section>"
@@ -339,20 +994,23 @@ def _parse_iso_timestamp(value: object) -> datetime | None:
 
 
 def _render_generated_meta(snapshot: dict[str, object]) -> str:
-    generated_at = _parse_iso_timestamp(snapshot.get("generated_at"))
     race_url = str(snapshot.get("race_url") or "").strip()
     competition_name = str(snapshot.get("competition_name") or "").strip()
     bits: list[str] = []
-    if generated_at is not None:
-        bits.append(f"Generated {generated_at.astimezone(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    generated_text = _format_display_datetime(
+        snapshot.get("generated_at"),
+        convert_to_utc=True,
+    )
+    if generated_text:
+        bits.append(f"Published {html.escape(generated_text)}")
     if competition_name:
-        bits.append(f"Competition: {competition_name}")
+        bits.append(f"Competition {html.escape(competition_name)}")
     if race_url:
         safe_url = html.escape(race_url, quote=True)
         bits.append(
-            f'Race source: <a href="{safe_url}" target="_blank" rel="noopener noreferrer">open source page</a>'
+            f'Race source <a href="{safe_url}" target="_blank" rel="noopener noreferrer">open source page</a>'
         )
-    return "<p class=\"meta-line\">" + " | ".join(bits) + "</p>" if bits else ""
+    return _render_meta_row(bits)
 
 
 def render_report_html(
@@ -382,31 +1040,71 @@ def render_report_html(
     if not isinstance(betrail_scores, list):
         betrail_scores = []
 
-    metrics = {
-        "Input participants": int(snapshot.get("participants_count", 0) or 0),
-        "Rows evaluated": int(snapshot.get("rows_evaluated", 0) or 0),
-        "Qualified (> threshold)": int(snapshot.get("qualified_count", 0) or 0),
-        "Strategy": str(snapshot.get("strategy", "participant-first")),
-        "Same-name mode": str(snapshot.get("same_name_mode", "highest")),
-    }
-    metric_cards = "".join(
-        f'<div class="metric-card"><div class="metric-label">{html.escape(label)}</div>'
-        f'<div class="metric-value">{html.escape(str(value))}</div></div>'
-        for label, value in metrics.items()
+    participants_count = int(snapshot.get("participants_count", 0) or 0)
+    qualified_count = int(snapshot.get("qualified_count", 0) or 0)
+    threshold_label = _format_threshold_label(snapshot.get("score_threshold"))
+    score_cards = _render_metric_cards(
+        [
+            (
+                "UTMB matches",
+                str(int(score_summary.get("with_utmb", len(utmb_scores)))),
+                "Athletes with a UTMB profile or index",
+            ),
+            (
+                "ITRA matches",
+                str(int(score_summary.get("with_itra", len(itra_scores)))),
+                "Athletes with an ITRA profile or score",
+            ),
+            (
+                "Betrail matches",
+                str(int(score_summary.get("with_betrail", len(betrail_scores)))),
+                "Athletes with a Betrail profile or score",
+            ),
+            (
+                "Any provider",
+                str(int(score_summary.get("with_any", max(len(utmb_scores), len(itra_scores), len(betrail_scores))))),
+                "Participants matched at least once",
+            ),
+            (
+                "Unmatched",
+                str(len([name for name in no_result_names if str(name).strip()])),
+                "Participants with no provider match",
+            ),
+        ]
     )
 
-    score_cards = "".join(
+    hero_metrics = _render_metric_cards(
         [
-            f'<div class="metric-card"><div class="metric-label">Participants</div><div class="metric-value">{int(score_summary.get("participants", metrics["Input participants"]))}</div></div>',
-            f'<div class="metric-card"><div class="metric-label">With UTMB</div><div class="metric-value">{int(score_summary.get("with_utmb", len(utmb_scores)))}</div></div>',
-            f'<div class="metric-card"><div class="metric-label">With ITRA</div><div class="metric-value">{int(score_summary.get("with_itra", len(itra_scores)))}</div></div>',
-            f'<div class="metric-card"><div class="metric-label">With Betrail</div><div class="metric-value">{int(score_summary.get("with_betrail", len(betrail_scores)))}</div></div>',
-            f'<div class="metric-card"><div class="metric-label">With Any Score</div><div class="metric-value">{int(score_summary.get("with_any", max(len(utmb_scores), len(itra_scores), len(betrail_scores))))}</div></div>',
+            (
+                "Athletes screened",
+                str(participants_count),
+                f'{int(snapshot.get("rows_evaluated", participants_count) or participants_count)} rows evaluated',
+            ),
+            (
+                "Above threshold",
+                str(qualified_count),
+                "Leaderboard entries surfaced",
+            ),
+            (
+                "Score threshold",
+                threshold_label,
+                "Combined-score cutoff",
+            ),
+            (
+                "Ranking strategy",
+                _friendly_strategy_label(snapshot.get("strategy", "participant-first")),
+                "Ordering rule used for the report",
+            ),
+            (
+                "Coverage",
+                str(int(score_summary.get("with_any", 0) or 0)),
+                "Participants with at least one provider score",
+            ),
         ]
     )
 
     stale_markup = ""
-    if snapshot.get("stale_provider_fallback_used"):
+    if snapshot.get("stale_provider_fallback_used") or snapshot.get("stale_cache_used"):
         stale_markup = (
             '<div class="warning">Some provider results were served from stale '
             "score-repo snapshots because live lookups failed.</div>"
@@ -414,108 +1112,70 @@ def render_report_html(
 
     csv_href = html.escape(csv_filename, quote=True)
     json_href = html.escape(json_filename, quote=True)
+    competition_name = str(snapshot.get("competition_name") or "").strip()
+    lead = (
+        f"Screened {participants_count} entrants"
+        + (f" for {competition_name}" if competition_name else "")
+        + (
+            f" and surfaced {qualified_count} athletes above the {threshold_label} threshold."
+            if threshold_label != "Not set"
+            else f" and surfaced {qualified_count} athletes with standout combined scores."
+        )
+    )
+    action_row = "".join(
+        [
+            _render_action_link(csv_href, "Download CSV", primary=True),
+            _render_action_link(json_href, "Download JSON"),
+        ]
+    )
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{title}</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f4f1ea;
-      --panel: #fffdfa;
-      --panel-strong: #ffffff;
-      --text: #1f1f1b;
-      --muted: #625d53;
-      --accent: #0b6b5f;
-      --accent-soft: #d8efe7;
-      --border: #ddd3c2;
-      --warning-bg: #fff0cc;
-      --warning-text: #724b00;
-      --shadow: 0 16px 40px rgba(37, 28, 11, 0.08);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: radial-gradient(circle at top, #fbf7ef 0%, var(--bg) 55%, #ebe3d4 100%); color: var(--text); }}
-    a {{ color: var(--accent); }}
-    .page {{ max-width: 1280px; margin: 0 auto; padding: 32px 20px 48px; }}
-    .hero {{ background: linear-gradient(135deg, rgba(11,107,95,0.12), rgba(148,95,32,0.16)); border: 1px solid rgba(11,107,95,0.12); border-radius: 24px; padding: 28px; box-shadow: var(--shadow); }}
-    .hero h1 {{ margin: 0 0 8px; font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.1; }}
-    .hero p {{ margin: 8px 0 0; color: var(--muted); }}
-    .meta-line {{ color: var(--muted); margin: 10px 0 0; }}
-    .download-row {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }}
-    .download-link {{ display: inline-flex; align-items: center; justify-content: center; min-width: 180px; padding: 12px 16px; background: var(--panel-strong); border: 1px solid var(--border); border-radius: 999px; text-decoration: none; font-weight: 700; box-shadow: 0 10px 24px rgba(0,0,0,0.05); }}
-    .metrics, .score-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 20px; }}
-    .metric-card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 16px; box-shadow: 0 10px 26px rgba(0,0,0,0.04); }}
-    .metric-label {{ color: var(--muted); font-size: 0.9rem; }}
-    .metric-value {{ margin-top: 6px; font-size: 1.45rem; font-weight: 700; }}
-    .section-grid {{ display: grid; gap: 18px; margin-top: 24px; }}
-    .panel {{ background: var(--panel); border: 1px solid var(--border); border-radius: 24px; padding: 22px; box-shadow: var(--shadow); }}
-    .panel h2 {{ margin: 0 0 14px; font-size: 1.4rem; }}
-    .section-caption {{ margin-top: -4px; color: var(--muted); }}
-    .warning {{ margin-top: 16px; padding: 14px 16px; border-radius: 16px; background: var(--warning-bg); color: var(--warning-text); border: 1px solid rgba(114,75,0,0.18); }}
-    .charts {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 18px; }}
-    .chart-card {{ border: 1px solid var(--border); border-radius: 18px; background: var(--panel-strong); padding: 16px; }}
-    .chart-card h3 {{ margin: 0 0 14px; font-size: 1.05rem; }}
-    .hist-row {{ display: grid; grid-template-columns: 88px minmax(0, 1fr) 48px; gap: 10px; align-items: center; margin-top: 10px; }}
-    .hist-label, .hist-count {{ color: var(--muted); font-size: 0.9rem; }}
-    .hist-bar-track {{ width: 100%; min-height: 26px; background: #f1ece1; border-radius: 999px; overflow: hidden; }}
-    .hist-bar {{ min-height: 26px; border-radius: 999px; background: linear-gradient(90deg, #0b6b5f, #1ea18f); color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; font-weight: 700; font-size: 0.84rem; }}
-    .hist-bar-empty {{ background: transparent; }}
-    .results-table {{ width: 100%; border-collapse: collapse; font-size: 0.95rem; }}
-    .results-table th, .results-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }}
-    .results-table th {{ font-size: 0.84rem; letter-spacing: 0.02em; text-transform: uppercase; color: var(--muted); background: #faf6ee; position: sticky; top: 0; }}
-    .table-wrap {{ overflow-x: auto; border: 1px solid var(--border); border-radius: 18px; background: var(--panel-strong); }}
-    .compact-table {{ max-width: 420px; }}
-    .empty-state {{ padding: 16px; border: 1px dashed var(--border); border-radius: 16px; color: var(--muted); background: rgba(255,255,255,0.35); }}
-    @media (max-width: 760px) {{
-      .page {{ padding: 18px 14px 28px; }}
-      .hero {{ padding: 22px; border-radius: 20px; }}
-      .hist-row {{ grid-template-columns: 76px minmax(0, 1fr) 40px; }}
-      .results-table {{ font-size: 0.9rem; }}
-      .results-table th, .results-table td {{ padding: 8px 10px; }}
-    }}
-  </style>
-</head>
-<body>
-  <main class="page">
+    body_html = f"""
     <section class="hero">
+      <p class="eyebrow">Race Report</p>
       <h1>{title}</h1>
-      <p>Static race report generated from the TrailIntel CLI.</p>
+      <p class="hero-lead">{html.escape(lead)}</p>
       {_render_generated_meta(snapshot)}
-      <div class="download-row">
-        <a class="download-link" href="{csv_href}">Download CSV</a>
-        <a class="download-link" href="{json_href}">Download JSON</a>
-      </div>
-      <div class="metrics">{metric_cards}</div>
+      <div class="action-row">{action_row}</div>
+      <div class="metric-grid">{hero_metrics}</div>
       {stale_markup}
     </section>
 
-    <section class="panel section-grid">
-      <div>
-        <h2>Score Distribution</h2>
-        <div class="score-metrics">{score_cards}</div>
-      </div>
-      <div class="charts">
-        {_render_histogram('UTMB Index', [float(value) for value in utmb_scores if value is not None])}
-        {_render_histogram('ITRA Score', [float(value) for value in itra_scores if value is not None])}
-        {_render_histogram('Betrail Score', [float(value) for value in betrail_scores if value is not None])}
-      </div>
-    </section>
+    <section class="section-stack">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Field Snapshot</h2>
+          <span class="pill">Coverage across UTMB, ITRA, and Betrail</span>
+        </div>
+        <p class="section-caption">Quick coverage stats plus score distributions for the full participant field.</p>
+        <div class="metric-grid">{score_cards}</div>
+        <div class="charts">
+          {_render_histogram('UTMB Index', [float(value) for value in utmb_scores if value is not None])}
+          {_render_histogram('ITRA Score', [float(value) for value in itra_scores if value is not None])}
+          {_render_histogram('Betrail Score', [float(value) for value in betrail_scores if value is not None])}
+        </div>
+      </section>
 
-    <section class="panel">
-      <h2>Top Athletes</h2>
-      <p class="section-caption">Showing up to the configured top rows for athletes above the threshold.</p>
-      {_render_top_rows_table(rows)}
-    </section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Leaderboard</h2>
+          <span class="pill">Top combined-score athletes</span>
+        </div>
+        <p class="section-caption">Highest-ranked athletes above the configured threshold, including provider links and matching notes.</p>
+        {_render_top_rows_table(rows)}
+      </section>
 
-    {_render_no_result_section([str(name) for name in no_result_names if str(name).strip()])}
-  </main>
-</body>
-</html>
-"""
+      {_render_no_result_section([str(name) for name in no_result_names if str(name).strip()])}
+    </section>
+    """
+    return _render_document(
+        title=str(snapshot.get("title", "Trail Race Report")),
+        theme="race",
+        active_nav="reports",
+        home_href="../../../index.html",
+        reports_href="../../index.html",
+        forecasts_href="../../../forecasts/index.html",
+        body_html=body_html,
+    )
 
 
 def build_report_metadata(snapshot: dict[str, object]) -> dict[str, object]:
@@ -527,7 +1187,6 @@ def build_report_metadata(snapshot: dict[str, object]) -> dict[str, object]:
         "rows_evaluated": int(snapshot.get("rows_evaluated", 0) or 0),
         "qualified_count": int(snapshot.get("qualified_count", 0) or 0),
         "strategy": snapshot.get("strategy", "participant-first"),
-        "same_name_mode": snapshot.get("same_name_mode", "highest"),
         "race_url": snapshot.get("race_url", ""),
         "competition_name": snapshot.get("competition_name", ""),
         "score_threshold": snapshot.get("score_threshold"),
@@ -635,17 +1294,20 @@ def _section_relative_path(path: object, *, section: str) -> str:
 
 def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Trail Race Reports") -> str:
     cards: list[str] = []
+    total_participants = 0
+    total_qualified = 0
     for entry in entries:
         title = html.escape(str(entry.get("title") or "Trail Race Report"))
-        published_at = _parse_iso_timestamp(entry.get("published_at") or entry.get("generated_at"))
-        published_text = (
-            published_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            if published_at is not None
-            else "Unknown time"
-        )
         participants = int(entry.get("participants_count", 0) or 0)
         qualified = int(entry.get("qualified_count", 0) or 0)
-        strategy = html.escape(str(entry.get("strategy") or "participant-first"))
+        total_participants += participants
+        total_qualified += qualified
+        strategy = _friendly_strategy_label(entry.get("strategy") or "participant-first")
+        published_text = _format_display_datetime(
+            entry.get("published_at") or entry.get("generated_at"),
+            convert_to_utc=True,
+            default="Unknown time",
+        )
         report_path = html.escape(
             _section_relative_path(entry.get("report_path"), section=REPORTS_SECTION_DIR),
             quote=True,
@@ -660,74 +1322,83 @@ def render_site_index(entries: list[dict[str, object]], *, site_title: str = "Tr
         )
         cards.append(
             f"""
-            <article class="report-card">
-              <div class="report-card-head">
-                <h2><a href="{report_path}">{title}</a></h2>
-                <p>{published_text}</p>
+            <article class="collection-card">
+              <div class="card-top">
+                <div>
+                  <p class="eyebrow">Race Report</p>
+                  <h2 class="card-title"><a href="{report_path}">{title}</a></h2>
+                  <p class="card-copy">Published {html.escape(published_text)}.</p>
+                </div>
+                <span class="pill">{participants} runners</span>
               </div>
-              <div class="report-card-metrics">
-                <span>Participants: <strong>{participants}</strong></span>
-                <span>Qualified: <strong>{qualified}</strong></span>
-                <span>Strategy: <strong>{strategy}</strong></span>
+              <div class="pill-row">
+                {_render_pills([
+                    f"{qualified} above threshold",
+                    strategy,
+                    "CSV + JSON export",
+                ])}
               </div>
-              <div class="report-card-links">
-                <a href="{report_path}">Open report</a>
-                <a href="{csv_path}">CSV</a>
-                <a href="{json_path}">JSON</a>
+              <p class="card-meta">
+                Latest published bundle for this race report archive entry.
+              </p>
+              <div class="action-row">
+                {_render_action_link(report_path, "Open report", primary=True)}
+                {_render_action_link(csv_path, "CSV")}
+                {_render_action_link(json_path, "JSON")}
               </div>
             </article>
             """
         )
 
     if not cards:
-        cards.append('<div class="empty-state">No published reports yet.</div>')
+        cards.append('<div class="empty-state">No published race reports yet.</div>')
 
-    safe_title = html.escape(site_title)
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{safe_title}</title>
-  <style>
-    :root {{
-      --bg: #f5efe4;
-      --panel: #fffdf9;
-      --text: #1d1f1a;
-      --muted: #645d52;
-      --accent: #165d52;
-      --border: #ddd1bc;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: linear-gradient(180deg, #faf7f0 0%, var(--bg) 100%); color: var(--text); }}
-    .page {{ max-width: 980px; margin: 0 auto; padding: 28px 18px 42px; }}
-    .hero {{ padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 24px; }}
-    .hero h1 {{ margin: 0 0 8px; font-size: clamp(1.8rem, 3.5vw, 2.7rem); }}
-    .hero p {{ margin: 0; color: var(--muted); }}
-    .report-list {{ display: grid; gap: 14px; margin-top: 20px; }}
-    .report-card {{ padding: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; }}
-    .report-card-head h2 {{ margin: 0; font-size: 1.25rem; }}
-    .report-card-head p {{ margin: 6px 0 0; color: var(--muted); }}
-    .report-card-metrics {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted); }}
-    .report-card-links {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }}
-    a {{ color: var(--accent); text-decoration: none; font-weight: 700; }}
-    .empty-state {{ padding: 16px; border-radius: 16px; border: 1px dashed var(--border); color: var(--muted); background: rgba(255,255,255,0.5); }}
-  </style>
-</head>
-<body>
-  <main class="page">
+    latest_text = _format_display_datetime(
+        entries[0].get("published_at") or entries[0].get("generated_at"),
+        convert_to_utc=True,
+        default="No published reports yet",
+    ) if entries else "No published reports yet"
+    body_html = f"""
     <section class="hero">
-      <h1>{safe_title}</h1>
-      <p>Static reports published by the TrailIntel GitHub Actions pipeline.</p>
+      <p class="eyebrow">Race Archive</p>
+      <h1>{html.escape(site_title)}</h1>
+      <p class="hero-lead">Published TrailIntel race reports with curated score coverage, provider links, and downloadable exports.</p>
+      {_render_meta_row([f"{len(entries)} published report(s)", f"Latest publish {html.escape(latest_text)}"])}
+      <div class="action-row">
+        {_render_action_link("../index.html", "Back to home")}
+        {_render_action_link("../forecasts/index.html", "Browse forecasts")}
+      </div>
+      <div class="metric-grid">
+        {_render_metric_cards([
+            ("Published reports", str(len(entries)), "Timestamped race report bundles"),
+            ("Participants screened", str(total_participants), "Across all published reports"),
+            ("Above threshold", str(total_qualified), "Qualified leaderboard entries"),
+        ])}
+      </div>
     </section>
-    <section class="report-list">
-      {''.join(cards)}
+
+    <section class="section-stack">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Published Reports</h2>
+          <span class="pill">Newest first</span>
+        </div>
+        <p class="section-caption">Each card links to the published report plus the archived CSV and JSON exports for the same run.</p>
+        <div class="collection-grid">
+          {''.join(cards)}
+        </div>
+      </section>
     </section>
-  </main>
-</body>
-</html>
-"""
+    """
+    return _render_document(
+        title=site_title,
+        theme="race",
+        active_nav="reports",
+        home_href="../index.html",
+        reports_href="index.html",
+        forecasts_href="../forecasts/index.html",
+        body_html=body_html,
+    )
 
 
 def render_forecast_index(
@@ -736,13 +1407,13 @@ def render_forecast_index(
     site_title: str = "Route Forecasts",
 ) -> str:
     cards: list[str] = []
+    total_distance = 0.0
     for entry in entries:
         title = html.escape(str(entry.get("title") or "Route Forecast"))
-        published_at = _parse_iso_timestamp(entry.get("published_at") or entry.get("generated_at"))
-        published_text = (
-            published_at.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
-            if published_at is not None
-            else "Unknown time"
+        published_text = _format_display_datetime(
+            entry.get("published_at") or entry.get("generated_at"),
+            convert_to_utc=True,
+            default="Unknown time",
         )
         report_path = html.escape(
             _section_relative_path(entry.get("report_path"), section=FORECASTS_SECTION_DIR),
@@ -760,26 +1431,31 @@ def render_forecast_index(
             _section_relative_path(entry.get("json_path"), section=FORECASTS_SECTION_DIR),
             quote=True,
         )
-        start_time = html.escape(str(entry.get("start_time") or ""))
-        duration = html.escape(str(entry.get("duration") or ""))
+        start_time = _format_display_datetime(entry.get("start_time"), default="Start time unavailable")
+        duration = _format_duration_label(entry.get("duration"))
         distance_km = float(entry.get("route_distance_km", 0.0) or 0.0)
+        total_distance += distance_km
         cards.append(
             f"""
-            <article class="report-card">
-              <div class="report-card-head">
-                <h2><a href="{report_path}">{title}</a></h2>
-                <p>{published_text}</p>
+            <article class="collection-card">
+              <div class="card-top">
+                <h2 class="card-title"><a href="{report_path}">{title}</a></h2>
+                <span class="pill">{distance_km:.2f} km</span>
               </div>
-              <div class="report-card-metrics">
-                <span>Start: <strong>{start_time}</strong></span>
-                <span>Duration: <strong>{duration}</strong></span>
-                <span>Distance: <strong>{distance_km:.2f} km</strong></span>
+              <p class="card-copy">Published {html.escape(published_text)}.</p>
+              <div class="pill-row">
+                {_render_pills([
+                    start_time,
+                    duration or "Duration unavailable",
+                    f"{distance_km:.2f} km route",
+                ])}
               </div>
-              <div class="report-card-links">
-                <a href="{report_path}">Open report</a>
-                <a href="{png_path}">PNG</a>
-                <a href="{gpx_path}">GPX</a>
-                <a href="{json_path}">JSON</a>
+              <p class="card-meta">Static route-weather forecasts with download links for the source GPX and published snapshot.</p>
+              <div class="action-row">
+                {_render_action_link(report_path, "Open report", primary=True)}
+                {_render_action_link(png_path, "PNG")}
+                {_render_action_link(gpx_path, "GPX")}
+                {_render_action_link(json_path, "JSON")}
               </div>
             </article>
             """
@@ -788,52 +1464,52 @@ def render_forecast_index(
     if not cards:
         cards.append('<div class="empty-state">No published forecasts yet.</div>')
 
-    safe_title = html.escape(site_title)
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{safe_title}</title>
-  <style>
-    :root {{
-      --bg: #f2efe8;
-      --panel: #fffdf9;
-      --text: #1d1f1a;
-      --muted: #645d52;
-      --accent: #0e5b85;
-      --border: #ddd1bc;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: linear-gradient(180deg, #faf7f0 0%, var(--bg) 100%); color: var(--text); }}
-    .page {{ max-width: 980px; margin: 0 auto; padding: 28px 18px 42px; }}
-    .hero {{ padding: 24px; background: var(--panel); border: 1px solid var(--border); border-radius: 24px; }}
-    .hero h1 {{ margin: 0 0 8px; font-size: clamp(1.8rem, 3.5vw, 2.7rem); }}
-    .hero p {{ margin: 0; color: var(--muted); }}
-    .report-list {{ display: grid; gap: 14px; margin-top: 20px; }}
-    .report-card {{ padding: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; }}
-    .report-card-head h2 {{ margin: 0; font-size: 1.25rem; }}
-    .report-card-head p {{ margin: 6px 0 0; color: var(--muted); }}
-    .report-card-metrics {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; color: var(--muted); }}
-    .report-card-links {{ display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }}
-    a {{ color: var(--accent); text-decoration: none; font-weight: 700; }}
-    .empty-state {{ padding: 16px; border-radius: 16px; border: 1px dashed var(--border); color: var(--muted); background: rgba(255,255,255,0.5); }}
-  </style>
-</head>
-<body>
-  <main class="page">
+    latest_text = _format_display_datetime(
+        entries[0].get("published_at") or entries[0].get("generated_at"),
+        convert_to_utc=True,
+        default="No published forecasts yet",
+    ) if entries else "No published forecasts yet"
+    body_html = f"""
     <section class="hero">
-      <h1>{safe_title}</h1>
-      <p>Static route forecasts published by the TrailIntel GitHub Actions pipeline.</p>
+      <p class="eyebrow">Forecast Archive</p>
+      <h1>{html.escape(site_title)}</h1>
+      <p class="hero-lead">Published route-weather forecasts with static PNG summaries, source GPX files, and archived JSON snapshots.</p>
+      {_render_meta_row([f"{len(entries)} published forecast(s)", f"Latest publish {html.escape(latest_text)}"])}
+      <div class="action-row">
+        {_render_action_link("../index.html", "Back to home")}
+        {_render_action_link("../reports/index.html", "Browse race reports")}
+      </div>
+      <div class="metric-grid">
+        {_render_metric_cards([
+            ("Published forecasts", str(len(entries)), "Timestamped route forecast bundles"),
+            ("Route distance", f"{total_distance:.1f} km", "Across all published forecasts"),
+            ("Latest publish", latest_text, "Most recent forecast bundle"),
+        ])}
+      </div>
     </section>
-    <section class="report-list">
-      {''.join(cards)}
+
+    <section class="section-stack">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Published Forecasts</h2>
+          <span class="pill">Newest first</span>
+        </div>
+        <p class="section-caption">Each forecast card links to the hosted report plus its PNG, GPX, and JSON snapshot.</p>
+        <div class="collection-grid">
+          {''.join(cards)}
+        </div>
+      </section>
     </section>
-  </main>
-</body>
-</html>
-"""
+    """
+    return _render_document(
+        title=site_title,
+        theme="forecast",
+        active_nav="forecasts",
+        home_href="../index.html",
+        reports_href="../reports/index.html",
+        forecasts_href="index.html",
+        body_html=body_html,
+    )
 
 
 def render_root_index(
@@ -843,71 +1519,110 @@ def render_root_index(
 ) -> str:
     race_count = len(race_entries)
     forecast_count = len(forecast_entries)
-    latest_race = html.escape(str(race_entries[0].get("title") or "")) if race_entries else "No published race reports yet"
-    latest_forecast = (
-        html.escape(str(forecast_entries[0].get("title") or ""))
-        if forecast_entries
-        else "No published forecasts yet"
-    )
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TrailIntel Pages</title>
-  <style>
-    :root {{
-      --bg: #f4efe6;
-      --panel: #fffdf9;
-      --text: #1f1e1a;
-      --muted: #625d53;
-      --border: #ddd1bc;
-      --shadow: 0 18px 40px rgba(30, 24, 17, 0.08);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: radial-gradient(circle at top, #fbf7ef 0%, var(--bg) 60%, #eae0d2 100%); color: var(--text); }}
-    .page {{ max-width: 1040px; margin: 0 auto; padding: 30px 20px 46px; }}
-    .hero {{ padding: 28px; background: var(--panel); border: 1px solid var(--border); border-radius: 26px; box-shadow: var(--shadow); }}
-    .hero h1 {{ margin: 0 0 10px; font-size: clamp(2rem, 4vw, 3rem); }}
-    .hero p {{ margin: 0; color: var(--muted); }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 24px; }}
-    .card {{ padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow); }}
-    .card h2 {{ margin: 0 0 8px; }}
-    .card p {{ margin: 0; color: var(--muted); }}
-    .count {{ margin-top: 16px; font-size: 2.4rem; font-weight: 800; }}
-    .links {{ display: flex; gap: 14px; margin-top: 16px; flex-wrap: wrap; }}
-    a {{ color: #165d52; text-decoration: none; font-weight: 700; }}
-  </style>
-</head>
-<body>
-  <main class="page">
+    latest_race = race_entries[0] if race_entries else {}
+    latest_forecast = forecast_entries[0] if forecast_entries else {}
+    latest_publish = ""
+    if race_entries or forecast_entries:
+        merged = [*(race_entries[:1]), *(forecast_entries[:1])]
+        merged.sort(
+            key=lambda item: str(item.get("published_at") or item.get("generated_at") or ""),
+            reverse=True,
+        )
+        latest_publish = _format_display_datetime(
+            merged[0].get("published_at") or merged[0].get("generated_at"),
+            convert_to_utc=True,
+        )
+
+    race_report_path = str(latest_race.get("report_path") or f"{REPORTS_SECTION_DIR}/index.html")
+    forecast_report_path = str(latest_forecast.get("report_path") or f"{FORECASTS_SECTION_DIR}/index.html")
+    race_report_href = html.escape(race_report_path, quote=True)
+    forecast_report_href = html.escape(forecast_report_path, quote=True)
+    race_title = html.escape(str(latest_race.get("title") or "No published race reports yet"))
+    forecast_title = html.escape(str(latest_forecast.get("title") or "No published forecasts yet"))
+    race_published = _format_display_datetime(
+        latest_race.get("published_at") or latest_race.get("generated_at"),
+        convert_to_utc=True,
+        default="No race reports published yet",
+    ) if race_entries else "No race reports published yet"
+    forecast_published = _format_display_datetime(
+        latest_forecast.get("published_at") or latest_forecast.get("generated_at"),
+        convert_to_utc=True,
+        default="No forecasts published yet",
+    ) if forecast_entries else "No forecasts published yet"
+    body_html = f"""
     <section class="hero">
-      <h1>TrailIntel Pages</h1>
-      <p>Published race reports and route forecasts generated by the TrailIntel workflows.</p>
+      <p class="eyebrow">TrailIntel Static Publishing</p>
+      <h1>Trail race reports and forecast archives, in one editorial front door.</h1>
+      <p class="hero-lead">Browse the public TrailIntel archive of race-score reports and route-weather forecasts published by the GitHub workflows.</p>
+      {_render_meta_row([
+          f"{race_count} race report(s)",
+          f"{forecast_count} forecast(s)",
+          html.escape(f"Latest publish {latest_publish}") if latest_publish else "",
+      ])}
+      <div class="action-row">
+        {_render_action_link(f"{REPORTS_SECTION_DIR}/index.html", "Browse race reports", primary=True)}
+        {_render_action_link(f"{FORECASTS_SECTION_DIR}/index.html", "Browse forecasts")}
+      </div>
+      <div class="metric-grid">
+        {_render_metric_cards([
+            ("Race reports", str(race_count), "Published score-driven race archives"),
+            ("Forecasts", str(forecast_count), "Published route-weather outlooks"),
+            ("Latest publish", latest_publish or "Not yet published", "Most recent site update"),
+        ])}
+      </div>
     </section>
-    <section class="grid">
-      <article class="card">
-        <h2>Race Reports</h2>
-        <p>{latest_race}</p>
-        <div class="count">{race_count}</div>
-        <div class="links">
-          <a href="{REPORTS_SECTION_DIR}/index.html">Open race reports</a>
+
+    <section class="section-stack">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Latest Highlights</h2>
+          <span class="pill">Newest published outputs</span>
         </div>
-      </article>
-      <article class="card">
-        <h2>Forecast Reports</h2>
-        <p>{latest_forecast}</p>
-        <div class="count">{forecast_count}</div>
-        <div class="links">
-          <a href="{FORECASTS_SECTION_DIR}/index.html">Open forecasts</a>
+        <p class="section-caption">Jump straight into the freshest race intelligence or forecast bundle from the public archive.</p>
+        <div class="collection-grid">
+          <article class="collection-card">
+            <div class="card-top">
+              <div>
+                <p class="eyebrow">Race Reports</p>
+                <h2 class="card-title"><a href="{race_report_href}">{race_title}</a></h2>
+                <p class="card-copy">{html.escape(race_published)}.</p>
+              </div>
+              <span class="pill">{race_count} total</span>
+            </div>
+            <p class="card-meta">Score-based race analysis with leaderboard exports, provider links, and coverage summaries.</p>
+            <div class="action-row">
+              {_render_action_link(f"{REPORTS_SECTION_DIR}/index.html", "Open race archive", primary=True)}
+              {_render_action_link(race_report_href, "Latest race report")}
+            </div>
+          </article>
+          <article class="collection-card">
+            <div class="card-top">
+              <div>
+                <p class="eyebrow">Forecasts</p>
+                <h2 class="card-title"><a href="{forecast_report_href}">{forecast_title}</a></h2>
+                <p class="card-copy">{html.escape(forecast_published)}.</p>
+              </div>
+              <span class="pill">{forecast_count} total</span>
+            </div>
+            <p class="card-meta">Static route-weather bundles with hosted PNG summaries, GPX files, and archived forecast snapshots.</p>
+            <div class="action-row">
+              {_render_action_link(f"{FORECASTS_SECTION_DIR}/index.html", "Open forecast archive", primary=True)}
+              {_render_action_link(forecast_report_href, "Latest forecast")}
+            </div>
+          </article>
         </div>
-      </article>
+      </section>
     </section>
-  </main>
-</body>
-</html>
-"""
+    """
+    return _render_document(
+        title="TrailIntel Pages",
+        theme="hub",
+        active_nav="home",
+        home_href="index.html",
+        reports_href=f"{REPORTS_SECTION_DIR}/index.html",
+        forecasts_href=f"{FORECASTS_SECTION_DIR}/index.html",
+        body_html=body_html,
+    )
 
 
 def refresh_site_index(site_root: str | Path) -> Path:

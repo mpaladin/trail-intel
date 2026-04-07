@@ -64,9 +64,16 @@ class ForecastBundleTests(unittest.TestCase):
 
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Sample Loop Forecast", html)
+            self.assertIn("Route Forecast", html)
+            self.assertIn("Forecast Overview", html)
+            self.assertIn("Route Timeline", html)
             self.assertIn('href="forecast.png"', html)
             self.assertIn('href="route.gpx"', html)
             self.assertIn('href="snapshot.json"', html)
+            self.assertIn("Published Mar 27, 2026 at 12:30 UTC", html)
+            self.assertNotIn("2026-03-27T12:30:00+00:00", html)
+            self.assertIn("Mar 28, 08:00", html)
+            self.assertNotIn("2026-03-28T08:00:00+00:00", html)
 
             snapshot = (site_dir / "snapshot.json").read_text(encoding="utf-8")
             self.assertIn('"report_kind": "forecast"', snapshot)
