@@ -156,7 +156,6 @@ class ScoreCliTests(unittest.TestCase):
                 fill_itra=True,
                 timeout=15,
                 itra_cookie=None,
-                betrail_cookie=None,
             )
 
             repo = AthleteScoreRepo(repo_path)
@@ -205,7 +204,6 @@ class ScoreCliTests(unittest.TestCase):
                 fill_itra=True,
                 timeout=15,
                 itra_cookie=None,
-                betrail_cookie=None,
             )
 
         self.assertEqual(mock_itra_client.return_value.search.call_count, 8)

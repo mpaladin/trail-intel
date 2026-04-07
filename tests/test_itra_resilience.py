@@ -35,7 +35,6 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
-            betrail_cookie=None,
         )
 
         self.assertIn("ITRA unavailable: temporary failure", records[0].notes)
@@ -67,7 +66,6 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
-            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 8)
@@ -102,7 +100,6 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie="session=broken",
-            betrail_cookie=None,
         )
 
         self.assertIn("ITRA cookie rejected, retried anonymously", records[0].notes)
@@ -137,7 +134,6 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
-            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra_client.return_value.search.call_count, 0)
@@ -178,7 +174,6 @@ class ItraResilienceTests(unittest.TestCase):
             skip_itra=False,
             itra_overrides=None,
             itra_cookie=None,
-            betrail_cookie=None,
         )
 
         self.assertEqual(mock_itra.search.call_count, 1)

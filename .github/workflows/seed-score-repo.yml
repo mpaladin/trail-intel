@@ -31,7 +31,6 @@ jobs:
       SCORE_REPO: ${{ vars.SCORE_REPO }}
       SCORE_REPO_BRANCH: ${{ vars.SCORE_REPO_BRANCH }}
       SCORE_REPO_TOKEN: ${{ secrets.SCORE_REPO_TOKEN }}
-      BETRAIL_COOKIE: ${{ secrets.BETRAIL_COOKIE }}
       ITRA_COOKIE: ${{ secrets.ITRA_COOKIE }}
       TRAILINTEL_SCORE_REPO: ${{ github.workspace }}/score-repo
     steps:
@@ -73,9 +72,6 @@ jobs:
             --repo "$TRAILINTEL_SCORE_REPO"
             --threshold "${{ inputs.threshold }}"
           )
-          if [ -n "$BETRAIL_COOKIE" ]; then
-            args+=(--betrail-cookie "$BETRAIL_COOKIE")
-          fi
           if [ "${{ inputs.fill_utmb }}" = "true" ]; then
             args+=(--fill-utmb)
           fi

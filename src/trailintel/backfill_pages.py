@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -130,14 +129,13 @@ def _catalog_payload(
     threshold: float,
     *,
     timeout: int,
-    betrail_cookie: str | None,
     cache: dict[float, tuple[list[tuple[str, float, str | None]], dict[str, tuple[str, float, str | None]]]],
 ) -> tuple[list[tuple[str, float, str | None]], dict[str, tuple[str, float, str | None]]]:
     cached = cache.get(threshold)
     if cached is not None:
         return cached
 
-    client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    client = BetrailClient(timeout=timeout)
     catalog, issue = _build_betrail_catalog(betrail_client=client, threshold=threshold)
     if issue:
         raise RuntimeError(issue)
@@ -151,7 +149,6 @@ def backfill_pages(
     *,
     pages_root: str | Path,
     timeout: int = 15,
-    betrail_cookie: str | None = None,
 ) -> int:
     root = Path(pages_root)
     reports_root = root / REPORTS_SECTION_DIR
@@ -184,7 +181,6 @@ def backfill_pages(
         entries, exact = _catalog_payload(
             score_threshold,
             timeout=timeout,
-            betrail_cookie=betrail_cookie,
             cache=catalog_cache,
         )
         for record in records:
@@ -237,23 +233,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="trailintel-backfill-pages")
     parser.add_argument("--pages-root", required=True, help="Path to the cloned trail-intel-pages worktree.")
     parser.add_argument("--timeout", type=int, default=15, help="HTTP timeout in seconds.")
-    parser.add_argument(
-        "--betrail-cookie",
-        help="Optional raw Cookie header value for Betrail requests. Can also be provided via BETRAIL_COOKIE.",
-    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    betrail_cookie = args.betrail_cookie or os.getenv("BETRAIL_COOKIE")
 
     try:
         processed = backfill_pages(
             pages_root=args.pages_root,
             timeout=int(args.timeout),
-            betrail_cookie=betrail_cookie,
         )
     except Exception as exc:
         print(f"Backfill failed: {exc}", file=sys.stderr)

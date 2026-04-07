@@ -82,7 +82,7 @@ class BackfillPagesTests(unittest.TestCase):
                 )
                 meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-            processed = backfill_pages(pages_root=root, timeout=5, betrail_cookie=None)
+            processed = backfill_pages(pages_root=root, timeout=5)
 
             self.assertEqual(processed, 2)
             for bundle_dir in bundle_dirs:

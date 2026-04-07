@@ -458,7 +458,6 @@ def _enrich_records_keep_all(
     timeout: int,
     skip_itra: bool,
     itra_cookie: str | None,
-    betrail_cookie: str | None,
     cache_store: LookupCacheStore | None,
     use_cache: bool,
     force_refresh_cache: bool,
@@ -477,7 +476,7 @@ def _enrich_records_keep_all(
         use_cache=use_cache,
         force_refresh=force_refresh_cache,
     )
-    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_client = BetrailClient(timeout=timeout)
     betrail_catalog, betrail_issue = _build_betrail_catalog(
         betrail_client=betrail_client,
         threshold=score_threshold,
@@ -1321,7 +1320,6 @@ def run_app() -> None:
         effective_use_cache = use_persistent_cache and (cache_store_for_lookup is not None)
 
         normalized_itra_cookie = _normalize_cookie_header(itra_cookie)
-        betrail_cookie = os.getenv("BETRAIL_COOKIE") or None
         if itra_cookie.strip() and not normalized_itra_cookie:
             st.warning("ITRA cookie format looks invalid. Expected: name=value; name2=value2")
 
@@ -1352,7 +1350,6 @@ def run_app() -> None:
                         skip_itra=skip_itra,
                         itra_overrides=None,
                         itra_cookie=normalized_itra_cookie,
-                        betrail_cookie=betrail_cookie,
                         score_threshold=float(score_threshold),
                         utmb_catalog_max_pages=int(utmb_catalog_max_pages),
                         catalog_min_match_score=float(catalog_min_match_score),
@@ -1365,7 +1362,6 @@ def run_app() -> None:
                         timeout=int(timeout),
                         skip_itra=skip_itra,
                         itra_cookie=normalized_itra_cookie,
-                        betrail_cookie=betrail_cookie,
                         cache_store=cache_store_for_lookup,
                         use_cache=effective_use_cache,
                         force_refresh_cache=force_refresh_cache,
@@ -1379,7 +1375,6 @@ def run_app() -> None:
                         skip_itra=skip_itra,
                         itra_overrides=None,
                         itra_cookie=normalized_itra_cookie,
-                        betrail_cookie=betrail_cookie,
                         cache_store=cache_store_for_lookup,
                         use_cache=effective_use_cache,
                         force_refresh_cache=force_refresh_cache,

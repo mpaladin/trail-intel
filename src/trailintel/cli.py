@@ -267,7 +267,6 @@ def _enrich_records(
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
     itra_cookie: str | None,
-    betrail_cookie: str | None,
     cache_store: LookupCacheStore | None = None,
     use_cache: bool = True,
     force_refresh_cache: bool = False,
@@ -291,7 +290,7 @@ def _enrich_records(
         use_cache=use_cache,
         force_refresh=force_refresh_cache,
     )
-    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_client = BetrailClient(timeout=timeout)
 
     betrail_lookup_threshold = _betrail_threshold(score_threshold)
     need_betrail_catalog = any(
@@ -690,7 +689,6 @@ def _enrich_records_from_catalog(
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
     itra_cookie: str | None,
-    betrail_cookie: str | None,
     score_threshold: float,
     utmb_catalog_max_pages: int,
     catalog_min_match_score: float,
@@ -704,7 +702,7 @@ def _enrich_records_from_catalog(
     overrides = itra_overrides or {}
     utmb_client = UtmbClient(timeout=timeout)
     itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
-    betrail_client = BetrailClient(timeout=timeout, cookie=betrail_cookie)
+    betrail_client = BetrailClient(timeout=timeout)
 
     betrail_lookup_threshold = _betrail_threshold(score_threshold)
     need_utmb_catalog = any(
@@ -1096,13 +1094,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Can also be provided via ITRA_COOKIE env var."
         ),
     )
-    parser.add_argument(
-        "--betrail-cookie",
-        help=(
-            "Optional raw Cookie header value for Betrail requests when public access is challenged. "
-            "Can also be provided via BETRAIL_COOKIE env var."
-        ),
-    )
     parser.add_argument("--skip-itra", action="store_true", help="Disable live ITRA lookups.")
     parser.add_argument(
         "--no-cache",
@@ -1194,7 +1185,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     itra_cookie = args.itra_cookie or os.getenv("ITRA_COOKIE")
-    betrail_cookie = args.betrail_cookie or os.getenv("BETRAIL_COOKIE")
     cache_store: LookupCacheStore | None = None
     score_repo: AthleteScoreRepo | None = None
     score_repo_path = Path(args.score_repo).expanduser() if args.score_repo else default_score_repo_path()
@@ -1230,7 +1220,6 @@ def main(argv: list[str] | None = None) -> int:
                 skip_itra=args.skip_itra,
                 itra_overrides=overrides,
                 itra_cookie=itra_cookie,
-                betrail_cookie=betrail_cookie,
                 score_threshold=args.score_threshold,
                 utmb_catalog_max_pages=max(1, args.utmb_catalog_max_pages),
                 catalog_min_match_score=max(0.0, min(1.0, args.catalog_min_match_score)),
@@ -1249,7 +1238,6 @@ def main(argv: list[str] | None = None) -> int:
                 skip_itra=args.skip_itra,
                 itra_overrides=overrides,
                 itra_cookie=itra_cookie,
-                betrail_cookie=betrail_cookie,
                 cache_store=cache_store,
                 use_cache=use_cache,
                 force_refresh_cache=args.refresh_cache,
