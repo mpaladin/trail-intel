@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import builtins
+import importlib
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -18,6 +21,39 @@ from trailintel.forecast.github_pipeline import (
 
 
 class ForecastGitHubPipelineTests(unittest.TestCase):
+    def test_module_import_does_not_require_forecast_runtime_deps(self) -> None:
+        body = """### Route Name
+Dolomite Dawn
+
+### GPX URL
+https://example.com/route.gpx
+
+### Start Date
+2026-07-15
+
+### Start Time
+06:30
+
+### Timezone
+Europe/Rome
+
+### Duration
+03:30
+"""
+        original_import = builtins.__import__
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "trailintel.forecast.site":
+                raise ModuleNotFoundError("simulated missing forecast runtime deps")
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=guarded_import):
+            sys.modules.pop("trailintel.forecast.github_pipeline", None)
+            module = importlib.import_module("trailintel.forecast.github_pipeline")
+            request = module.parse_issue_form(body)
+
+        self.assertEqual(request.route_slug, "dolomite-dawn")
+
     def test_parse_issue_form(self) -> None:
         body = """### Route Name
 Dolomite Dawn

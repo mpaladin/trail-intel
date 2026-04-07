@@ -10,11 +10,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from trailintel.forecast.site import (
-    build_forecast_slug,
-    publish_forecast_bundle_to_site,
-)
 from trailintel.forecast.time_utils import parse_duration
+from trailintel.github_pipeline import normalize_slug_text
 
 FIELD_ALIASES = {
     "route name": "route_name",
@@ -40,7 +37,7 @@ class ForecastRequest:
 
     @property
     def route_slug(self) -> str:
-        return build_forecast_slug(self.route_name)
+        return normalize_slug_text(self.route_name)
 
     @property
     def start_value(self) -> str:
@@ -265,6 +262,8 @@ def publish_forecast_bundle(
     published_at: datetime | None = None,
     base_url: str | None = None,
 ) -> ForecastPublishResult:
+    from trailintel.forecast.site import publish_forecast_bundle_to_site
+
     timestamp = (published_at or datetime.now(UTC)).astimezone(UTC)
     published = publish_forecast_bundle_to_site(
         source_dir=source_dir,
