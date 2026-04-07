@@ -400,8 +400,8 @@ snapshots back to `trail-intel-score`.
 
 Required secrets for broad Betrail seeding in Actions:
 
-- `BETRAIL_COOKIE`: required, because Betrail is Cloudflare-protected in GitHub Actions
 - `SCORE_REPO_TOKEN` or `PAGES_REPO_TOKEN`: required for cloning/pushing the score repo
+- `BETRAIL_COOKIE`: optional fallback when anonymous Betrail access is challenged in Actions
 - `ITRA_COOKIE`: optional, only needed if you want authenticated ITRA enrichment during the seed run
 
 ## Backfill Published Pages

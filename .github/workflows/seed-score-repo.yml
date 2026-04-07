@@ -50,10 +50,6 @@ jobs:
         env:
           PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
         run: |
-          if [ -z "$BETRAIL_COOKIE" ]; then
-            echo "Missing secret BETRAIL_COOKIE." >&2
-            exit 1
-          fi
           token="${SCORE_REPO_TOKEN:-$PAGES_REPO_TOKEN}"
           if [ -z "$token" ]; then
             echo "Missing SCORE_REPO_TOKEN or fallback PAGES_REPO_TOKEN." >&2
@@ -76,8 +72,10 @@ jobs:
             seed-betrail
             --repo "$TRAILINTEL_SCORE_REPO"
             --threshold "${{ inputs.threshold }}"
-            --betrail-cookie "$BETRAIL_COOKIE"
           )
+          if [ -n "$BETRAIL_COOKIE" ]; then
+            args+=(--betrail-cookie "$BETRAIL_COOKIE")
+          fi
           if [ "${{ inputs.fill_utmb }}" = "true" ]; then
             args+=(--fill-utmb)
           fi

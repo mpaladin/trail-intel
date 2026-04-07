@@ -28,6 +28,9 @@ def _betrail_row(
 
 
 class BetrailProviderTests(unittest.TestCase):
+    def test_default_catalog_page_size_matches_public_endpoint(self) -> None:
+        self.assertEqual(BetrailClient.PAGE_SIZE, 25)
+
     @patch("trailintel.providers.betrail.BetrailClient._fetch_page")
     def test_catalog_fetch_normalizes_scores_and_dedupes(self, mock_fetch_page) -> None:
         mock_fetch_page.side_effect = [

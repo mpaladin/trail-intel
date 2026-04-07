@@ -32,7 +32,7 @@ class BetrailCatalogEntry:
 
 class BetrailClient:
     BASE_URL = "https://www.betrail.run"
-    PAGE_SIZE = 150
+    PAGE_SIZE = 25
 
     def __init__(self, timeout: int = 15, cookie: str | None = None) -> None:
         self.timeout = timeout
