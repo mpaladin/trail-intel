@@ -52,9 +52,3 @@ body:
       default: 0
     validations:
       required: true
-  - type: textarea
-    id: notes
-    attributes:
-      label: Notes
-      description: Optional free-form notes for the request.
-      placeholder: Anything special about this run.

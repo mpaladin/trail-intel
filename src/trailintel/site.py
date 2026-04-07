@@ -185,8 +185,7 @@ def build_report_snapshot(
     race_url: str = "",
     competition_name: str = "",
     score_threshold: float | None = None,
-    cache_status: str = "",
-    stale_cache_used: bool = False,
+    stale_provider_fallback_used: bool = False,
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
     ranked_all = sort_records(all_records, sort_by=sort_by)
@@ -210,8 +209,7 @@ def build_report_snapshot(
         "itra_scores": itra_scores,
         "betrail_scores": betrail_scores,
         "score_summary": score_summary,
-        "cache_status": cache_status,
-        "stale_cache_used": stale_cache_used,
+        "stale_provider_fallback_used": stale_provider_fallback_used,
         "race_url": race_url,
         "competition_name": competition_name,
         "score_threshold": score_threshold,
@@ -407,11 +405,12 @@ def render_report_html(
         ]
     )
 
-    cache_status = str(snapshot.get("cache_status") or "").strip()
-    cache_markup = f'<p class="cache-line">{html.escape(cache_status)}</p>' if cache_status else ""
     stale_markup = ""
-    if snapshot.get("stale_cache_used"):
-        stale_markup = '<div class="warning">Some provider results were served from stale cache due to live lookup failures.</div>'
+    if snapshot.get("stale_provider_fallback_used"):
+        stale_markup = (
+            '<div class="warning">Some provider results were served from stale '
+            "score-repo snapshots because live lookups failed.</div>"
+        )
 
     csv_href = html.escape(csv_filename, quote=True)
     json_href = html.escape(json_filename, quote=True)
@@ -445,7 +444,7 @@ def render_report_html(
     .hero {{ background: linear-gradient(135deg, rgba(11,107,95,0.12), rgba(148,95,32,0.16)); border: 1px solid rgba(11,107,95,0.12); border-radius: 24px; padding: 28px; box-shadow: var(--shadow); }}
     .hero h1 {{ margin: 0 0 8px; font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.1; }}
     .hero p {{ margin: 8px 0 0; color: var(--muted); }}
-    .meta-line, .cache-line {{ color: var(--muted); margin: 10px 0 0; }}
+    .meta-line {{ color: var(--muted); margin: 10px 0 0; }}
     .download-row {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }}
     .download-link {{ display: inline-flex; align-items: center; justify-content: center; min-width: 180px; padding: 12px 16px; background: var(--panel-strong); border: 1px solid var(--border); border-radius: 999px; text-decoration: none; font-weight: 700; box-shadow: 0 10px 24px rgba(0,0,0,0.05); }}
     .metrics, .score-metrics {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 20px; }}
@@ -486,7 +485,6 @@ def render_report_html(
       <h1>{title}</h1>
       <p>Static race report generated from the TrailIntel CLI.</p>
       {_render_generated_meta(snapshot)}
-      {cache_markup}
       <div class="download-row">
         <a class="download-link" href="{csv_href}">Download CSV</a>
         <a class="download-link" href="{json_href}">Download JSON</a>

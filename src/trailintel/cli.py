@@ -9,7 +9,6 @@ from typing import Iterable
 
 import requests
 
-from trailintel.cache_store import LookupCacheStore, default_cache_db_path
 from trailintel.matching import canonical_name, is_strong_person_name_match, match_score
 from trailintel.models import AthleteRecord
 from trailintel.participants import (
@@ -209,7 +208,7 @@ def _apply_stale_repo_fallback(
     _apply_provider_snapshot(record, provider=provider, lookup=lookup)
     record.notes = _append_note(
         record.notes,
-        f"{_provider_label(provider)} stale cache fallback used from score repo",
+        f"{_provider_label(provider)} stale score repo fallback used",
     )
 
 
@@ -285,9 +284,6 @@ def _enrich_records(
     skip_itra: bool,
     itra_overrides: dict[str, float] | None,
     itra_cookie: str | None,
-    cache_store: LookupCacheStore | None = None,
-    use_cache: bool = True,
-    force_refresh_cache: bool = False,
     score_repo: AthleteScoreRepo | None = None,
     score_repo_read_only: bool = False,
     score_repo_run_id: str | None = None,
@@ -295,19 +291,8 @@ def _enrich_records(
     provider_issues: dict[str, str | None] | None = None,
 ) -> list[AthleteRecord]:
     names_list = list(names)
-    utmb_client = UtmbClient(
-        timeout=timeout,
-        cache_store=cache_store,
-        use_cache=use_cache,
-        force_refresh=force_refresh_cache,
-    )
-    itra_client = ItraClient(
-        timeout=timeout,
-        cookie=itra_cookie,
-        cache_store=cache_store,
-        use_cache=use_cache,
-        force_refresh=force_refresh_cache,
-    )
+    utmb_client = UtmbClient(timeout=timeout)
+    itra_client = ItraClient(timeout=timeout, cookie=itra_cookie)
     betrail_client = BetrailClient(timeout=timeout)
 
     betrail_lookup_threshold = _betrail_threshold(score_threshold)
@@ -358,7 +343,6 @@ def _enrich_records(
         else:
             try:
                 utmb_match = utmb_client.search(name)
-                persist_utmb = not utmb_client.last_lookup_stale_fallback
                 if utmb_match:
                     record.utmb_index = utmb_match.utmb_index
                     record.utmb_match_name = utmb_match.matched_name
@@ -375,7 +359,7 @@ def _enrich_records(
                             score=utmb_match.utmb_index,
                             match_confidence=utmb_match.match_score,
                             source_run_id=score_repo_run_id,
-                            persist=persist_utmb and utmb_match.match_score >= min_match_score,
+                            persist=utmb_match.match_score >= min_match_score,
                         )
                     )
                 else:
@@ -389,11 +373,8 @@ def _enrich_records(
                             score=None,
                             match_confidence=None,
                             source_run_id=score_repo_run_id,
-                            persist=persist_utmb,
                         )
                     )
-                if utmb_client.last_lookup_stale_fallback:
-                    record.notes = _append_note(record.notes, "UTMB stale cache fallback used")
             except requests.RequestException as exc:
                 if utmb_repo_lookup is not None and utmb_repo_lookup.is_stale:
                     _apply_stale_repo_fallback(record, provider="utmb", lookup=utmb_repo_lookup)
@@ -502,7 +483,6 @@ def _enrich_records(
         else:
             try:
                 itra_match = itra_client.search(name)
-                persist_itra = not itra_client.last_lookup_stale_fallback
                 if itra_client.last_lookup_used_cookie_fallback:
                     record.notes = _append_note(record.notes, "ITRA cookie rejected, retried anonymously")
                 if itra_match:
@@ -524,8 +504,7 @@ def _enrich_records(
                             match_confidence=itra_match.match_score,
                             source_run_id=score_repo_run_id,
                             persist=(
-                                persist_itra
-                                and itra_match.match_score >= min_match_score
+                                itra_match.match_score >= min_match_score
                                 and itra_match.itra_score is not None
                             ),
                         )
@@ -541,11 +520,8 @@ def _enrich_records(
                             score=None,
                             match_confidence=None,
                             source_run_id=score_repo_run_id,
-                            persist=persist_itra,
                         )
                     )
-                if itra_client.last_lookup_stale_fallback:
-                    record.notes = _append_note(record.notes, "ITRA stale cache fallback used")
                 consecutive_itra_failures = 0
             except ItraLookupError as exc:
                 consecutive_itra_failures += 1
@@ -1114,24 +1090,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-itra", action="store_true", help="Disable live ITRA lookups.")
     parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable persistent lookup cache.",
-    )
-    parser.add_argument(
-        "--refresh-cache",
-        action="store_true",
-        help="Bypass cache reads and refresh lookup entries from live providers.",
-    )
-    parser.add_argument(
-        "--cache-db",
-        help=(
-            "Path to cache DuckDB file (default: TRAILINTEL_CACHE_DB env var, then "
-            "TRAILINTEL_CONFIG_FILE/~/.config/trailintel/config.toml [cache].db_path, "
-            "then ~/.cache/trailintel/trailintel_cache.duckdb)."
-        ),
-    )
-    parser.add_argument(
         "--score-repo",
         help=(
             "Path to a local checkout of the score repo "
@@ -1203,7 +1161,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     itra_cookie = args.itra_cookie or os.getenv("ITRA_COOKIE")
-    cache_store: LookupCacheStore | None = None
     score_repo: AthleteScoreRepo | None = None
     score_repo_path = Path(args.score_repo).expanduser() if args.score_repo else default_score_repo_path()
     if score_repo_path is not None:
@@ -1213,14 +1170,6 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             score_repo = None
             print(f"Warning: score repo disabled ({exc})", file=sys.stderr)
-    use_cache = not args.no_cache
-    cache_db_path = Path(args.cache_db).expanduser() if args.cache_db else default_cache_db_path()
-    if use_cache:
-        try:
-            cache_store = LookupCacheStore(cache_db_path)
-        except Exception as exc:
-            use_cache = False
-            print(f"Warning: cache disabled ({exc})", file=sys.stderr)
 
     score_repo_run_id = score_repo.generate_run_id() if score_repo is not None else None
     score_repo_stats = _new_score_repo_stats()
@@ -1230,44 +1179,37 @@ def main(argv: list[str] | None = None) -> int:
         "betrail": None,
     }
 
-    try:
-        if args.strategy == "catalog-first":
-            records = _enrich_records_from_catalog(
-                names,
-                timeout=args.timeout,
-                skip_itra=args.skip_itra,
-                itra_overrides=overrides,
-                itra_cookie=itra_cookie,
-                score_threshold=args.score_threshold,
-                utmb_catalog_max_pages=max(1, args.utmb_catalog_max_pages),
-                catalog_min_match_score=max(0.0, min(1.0, args.catalog_min_match_score)),
-                score_repo=score_repo,
-                score_repo_read_only=args.score_repo_read_only,
-                score_repo_run_id=score_repo_run_id,
-                score_repo_stats=score_repo_stats,
-                provider_issues=provider_issues,
-            )
-        else:
-            records = _enrich_records(
-                names,
-                min_match_score=args.min_match_score,
-                score_threshold=args.score_threshold,
-                timeout=args.timeout,
-                skip_itra=args.skip_itra,
-                itra_overrides=overrides,
-                itra_cookie=itra_cookie,
-                cache_store=cache_store,
-                use_cache=use_cache,
-                force_refresh_cache=args.refresh_cache,
-                score_repo=score_repo,
-                score_repo_read_only=args.score_repo_read_only,
-                score_repo_run_id=score_repo_run_id,
-                score_repo_stats=score_repo_stats,
-                provider_issues=provider_issues,
-            )
-    finally:
-        if cache_store:
-            cache_store.close()
+    if args.strategy == "catalog-first":
+        records = _enrich_records_from_catalog(
+            names,
+            timeout=args.timeout,
+            skip_itra=args.skip_itra,
+            itra_overrides=overrides,
+            itra_cookie=itra_cookie,
+            score_threshold=args.score_threshold,
+            utmb_catalog_max_pages=max(1, args.utmb_catalog_max_pages),
+            catalog_min_match_score=max(0.0, min(1.0, args.catalog_min_match_score)),
+            score_repo=score_repo,
+            score_repo_read_only=args.score_repo_read_only,
+            score_repo_run_id=score_repo_run_id,
+            score_repo_stats=score_repo_stats,
+            provider_issues=provider_issues,
+        )
+    else:
+        records = _enrich_records(
+            names,
+            min_match_score=args.min_match_score,
+            score_threshold=args.score_threshold,
+            timeout=args.timeout,
+            skip_itra=args.skip_itra,
+            itra_overrides=overrides,
+            itra_cookie=itra_cookie,
+            score_repo=score_repo,
+            score_repo_read_only=args.score_repo_read_only,
+            score_repo_run_id=score_repo_run_id,
+            score_repo_stats=score_repo_stats,
+            provider_issues=provider_issues,
+        )
 
     filtered = (
         records
@@ -1319,20 +1261,6 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.site_dir:
-        cache_status_parts: list[str] = []
-        if use_cache:
-            cache_status_parts.append(
-                f"DuckDB cache: enabled (`{cache_db_path}`)"
-                + (" - force refresh enabled" if args.refresh_cache else "")
-            )
-        else:
-            cache_status_parts.append("DuckDB cache: disabled by flag or unavailable")
-        if score_repo is not None:
-            mode = "read-only" if args.score_repo_read_only else "read/write"
-            cache_status_parts.append(f"Score repo: {mode} (`{score_repo.root}`)")
-        else:
-            cache_status_parts.append("Score repo: disabled or unconfigured")
-        cache_status = " | ".join(cache_status_parts)
         snapshot = build_report_snapshot(
             title=heading,
             all_records=records,
@@ -1345,9 +1273,8 @@ def main(argv: list[str] | None = None) -> int:
             race_url=args.race_url or "",
             competition_name=args.competition_name or "",
             score_threshold=args.score_threshold,
-            cache_status=cache_status,
-            stale_cache_used=any(
-                "stale cache fallback used" in (record.notes or "")
+            stale_provider_fallback_used=any(
+                "stale score repo fallback used" in (record.notes or "")
                 for record in records
             ),
         )

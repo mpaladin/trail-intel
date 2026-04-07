@@ -11,7 +11,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import requests
 from bs4 import BeautifulSoup
 
-from trailintel.cache_store import LookupCacheStore
 from trailintel.matching import (
     canonical_name,
     is_strong_person_name_match,
@@ -56,22 +55,12 @@ class ItraClient:
         self,
         timeout: int = 15,
         cookie: str | None = None,
-        *,
-        cache_store: LookupCacheStore | None = None,
-        use_cache: bool = True,
-        force_refresh: bool = False,
     ) -> None:
         self.timeout = timeout
         self.session = requests.Session()
         self._csrf_token: str | None = None
-        self.cache_store = cache_store
-        self.use_cache = use_cache and cache_store is not None
-        self.force_refresh = force_refresh
         self._cookie = cookie
-        self.last_lookup_used_cache = False
-        self.last_lookup_stale_fallback = False
         self.last_lookup_used_cookie_fallback = False
-        self._auth_scope = "auth" if cookie else "public"
         self.session.headers.update(
             {
                 "User-Agent": (
@@ -84,9 +73,6 @@ class ItraClient:
         )
         if cookie:
             self.session.headers.update({"Cookie": cookie})
-
-    def _cache_auth_scope(self) -> str:
-        return self._auth_scope
 
     @staticmethod
     def _get_string(item: dict[str, Any], *keys: str) -> str:
@@ -361,108 +347,6 @@ class ItraClient:
             )
         return candidates
 
-    @staticmethod
-    def _serialize_candidates(candidates: list[ItraMatch]) -> str:
-        rows = [
-            {
-                "matched_name": candidate.matched_name,
-                "itra_score": candidate.itra_score,
-                "profile_url": candidate.profile_url,
-                "match_score": candidate.match_score,
-            }
-            for candidate in candidates
-        ]
-        return json.dumps(rows, ensure_ascii=False)
-
-    @staticmethod
-    def _deserialize_candidates(name: str, payload_json: str, *, source: str) -> list[ItraMatch]:
-        if not payload_json.strip():
-            return []
-        try:
-            rows = json.loads(payload_json)
-        except json.JSONDecodeError:
-            return []
-        if not isinstance(rows, list):
-            return []
-
-        parsed: list[ItraMatch] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            matched_name = str(row.get("matched_name", "")).strip()
-            if not matched_name:
-                continue
-
-            score_raw = row.get("itra_score")
-            itra_score: float | None
-            if score_raw in (None, ""):
-                itra_score = None
-            else:
-                try:
-                    itra_score = float(score_raw)
-                except (TypeError, ValueError):
-                    itra_score = None
-
-            match_raw = row.get("match_score")
-            try:
-                match_value = float(match_raw)
-            except (TypeError, ValueError):
-                match_value = match_score(name, matched_name)
-
-            profile = row.get("profile_url")
-            profile_url = str(profile).strip() if isinstance(profile, str) else None
-            parsed.append(
-                ItraMatch(
-                    query_name=name,
-                    matched_name=matched_name,
-                    itra_score=itra_score,
-                    profile_url=profile_url,
-                    match_score=match_value,
-                    raw={},
-                    source=source,
-                )
-            )
-        parsed.sort(
-            key=lambda item: (
-                item.itra_score if item.itra_score is not None else -1.0,
-                item.match_score,
-            ),
-            reverse=True,
-        )
-        return parsed
-
-    def _get_cached_candidates(self, name: str) -> tuple[list[ItraMatch] | None, bool]:
-        if not self.use_cache or self.cache_store is None or self.force_refresh:
-            return None, False
-        try:
-            entry = self.cache_store.get_lookup(
-                provider="itra",
-                query_name=name,
-                auth_scope=self._cache_auth_scope(),
-            )
-        except Exception:
-            return None, False
-        if not entry:
-            return None, False
-        if entry.is_stale:
-            return self._deserialize_candidates(name, entry.payload_json, source="stale_cache"), True
-        return self._deserialize_candidates(name, entry.payload_json, source="cache"), False
-
-    def _put_cached_candidates(self, name: str, candidates: list[ItraMatch]) -> None:
-        if not self.use_cache or self.cache_store is None:
-            return
-        try:
-            status = "success" if candidates else "miss"
-            self.cache_store.put_lookup(
-                provider="itra",
-                query_name=name,
-                auth_scope=self._cache_auth_scope(),
-                status=status,
-                payload_json=self._serialize_candidates(candidates),
-            )
-        except Exception:
-            return
-
     def _should_try_anonymous_fallback(self, error: ItraLookupError) -> bool:
         if not self._cookie:
             return False
@@ -478,49 +362,26 @@ class ItraClient:
         return False
 
     def search_same_name_candidates(self, name: str) -> list[ItraMatch]:
-        self.last_lookup_used_cache = False
-        self.last_lookup_stale_fallback = False
         self.last_lookup_used_cookie_fallback = False
-
-        stale_cached_candidates: list[ItraMatch] | None = None
-        cached_candidates, is_stale = self._get_cached_candidates(name)
-        if cached_candidates is not None:
-            self.last_lookup_used_cache = True
-            if is_stale:
-                stale_cached_candidates = cached_candidates
-            else:
-                return cached_candidates
 
         try:
             candidates = self._search_candidates(name)
             if not candidates:
-                self._put_cached_candidates(name, [])
                 return []
         except ItraLookupError as exc:
             recovered_with_anonymous = False
             if self._should_try_anonymous_fallback(exc):
-                anonymous_client = ItraClient(
-                    timeout=self.timeout,
-                    cookie=None,
-                    cache_store=None,
-                    use_cache=False,
-                    force_refresh=True,
-                )
+                anonymous_client = ItraClient(timeout=self.timeout, cookie=None)
                 try:
                     candidates = anonymous_client._search_candidates(name)
                     self.last_lookup_used_cookie_fallback = True
                     recovered_with_anonymous = True
                     if not candidates:
-                        self._put_cached_candidates(name, [])
                         return []
                 except ItraLookupError as fallback_exc:
                     exc = ItraLookupError(f"{exc}; anonymous retry failed: {fallback_exc}")
 
             if not recovered_with_anonymous:
-                if stale_cached_candidates is not None:
-                    self.last_lookup_used_cache = True
-                    self.last_lookup_stale_fallback = True
-                    return stale_cached_candidates
                 raise exc
 
         strong_candidates = [
@@ -539,7 +400,6 @@ class ItraClient:
             for item in strong_candidates
         ]
         if not strong_candidates:
-            self._put_cached_candidates(name, [])
             return []
 
         best = max(strong_candidates, key=lambda item: item.match_score)
@@ -552,7 +412,6 @@ class ItraClient:
             ),
             reverse=True,
         )
-        self._put_cached_candidates(name, same_name)
         return same_name
 
     def search(self, name: str) -> ItraMatch | None:

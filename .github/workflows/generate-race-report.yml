@@ -35,10 +35,6 @@ on:
         options:
           - participant-first
           - catalog-first
-      notes:
-        description: Optional notes for this run
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -90,7 +86,6 @@ jobs:
           INPUT_SCORE_THRESHOLD: ${{ inputs.score_threshold }}
           INPUT_TOP: ${{ inputs.top }}
           INPUT_STRATEGY: ${{ inputs.strategy }}
-          INPUT_NOTES: ${{ inputs.notes }}
         run: |
           PYTHONPATH=src python - <<'PY'
           from dataclasses import asdict
@@ -115,7 +110,6 @@ jobs:
                   score_threshold=float(os.getenv("INPUT_SCORE_THRESHOLD") or DEFAULT_SCORE_THRESHOLD),
                   top=int(os.getenv("INPUT_TOP") or DEFAULT_TOP),
                   strategy=(os.getenv("INPUT_STRATEGY") or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY,
-                  notes=os.getenv("INPUT_NOTES", "").strip(),
               )
 
           payload = asdict(request)
@@ -160,7 +154,6 @@ jobs:
       SCORE_REPO: ${{ vars.SCORE_REPO }}
       SCORE_REPO_BRANCH: ${{ vars.SCORE_REPO_BRANCH }}
       SCORE_REPO_TOKEN: ${{ secrets.SCORE_REPO_TOKEN }}
-      TRAILINTEL_CACHE_DB: ${{ github.workspace }}/.workflow-cache/trailintel_cache.duckdb
       TRAILINTEL_SCORE_REPO: ${{ github.workspace }}/score-repo
     outputs:
       publish_json: ${{ steps.publish.outputs.publish_json }}
@@ -171,20 +164,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Restore athlete lookup cache
-        uses: actions/cache/restore@v5
-        with:
-          path: .workflow-cache/trailintel_cache.duckdb
-          key: trailintel-lookups-${{ runner.os }}-${{ github.repository }}-${{ github.run_id }}
-          restore-keys: |
-            trailintel-lookups-${{ runner.os }}-${{ github.repository }}-
-
       - name: Install project
         run: |
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Clone score repo cache
+      - name: Clone score repo
         env:
           PAGES_REPO_TOKEN: ${{ secrets.PAGES_REPO_TOKEN }}
         run: |
@@ -217,7 +202,6 @@ jobs:
               score_threshold=float(payload.get("score_threshold", 680.0)),
               top=int(payload.get("top", 100)),
               strategy=payload.get("strategy", "participant-first"),
-              notes=payload.get("notes", ""),
           )
           args = [
               sys.executable,
@@ -312,7 +296,6 @@ jobs:
               score_threshold=float(payload.get("score_threshold", 680.0)),
               top=int(payload.get("top", 100)),
               strategy=payload.get("strategy", "participant-first"),
-              notes=payload.get("notes", ""),
           )
           result = publish_report_bundle(
               source_dir=Path("dist/site"),
@@ -345,13 +328,6 @@ jobs:
           fi
           git commit -m "Publish report: ${{ needs.prepare.outputs.race_name }}"
           git push origin "$branch"
-
-      - name: Save athlete lookup cache
-        if: always()
-        uses: actions/cache/save@v5
-        with:
-          path: .workflow-cache/trailintel_cache.duckdb
-          key: trailintel-lookups-${{ runner.os }}-${{ github.repository }}-${{ github.run_id }}
 
       - name: Comment success on issue
         if: github.event_name == 'issues'
