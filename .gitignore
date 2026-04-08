@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 *.egg-info/
 dist/
+node_modules/
+coverage/
 pages-repo/
 .DS_Store
