@@ -5,9 +5,10 @@ import json
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
-from trailintel.forecast.engine import select_wettest_sample
+from trailintel.forecast.engine import select_wettest_sample, summarize_report
+from trailintel.forecast.weather import provider_definition
 from trailintel.github_pipeline import normalize_slug_text
 from trailintel.site import (
     FORECAST_REPORT_KIND,
@@ -49,6 +50,30 @@ def _timezone_label(value: datetime) -> str:
     return getattr(tz, "key", None) or value.tzname() or "UTC"
 
 
+def _round_optional(value: float | None, digits: int) -> float | None:
+    if value is None:
+        return None
+    return round(value, digits)
+
+
+def _display_cell(value: object) -> str:
+    if value is None or value == "":
+        return "n/a"
+    return str(value)
+
+
+def _format_probability_label(value: object) -> str:
+    if value is None or value == "":
+        return "chance unavailable"
+    return f"{float(value):.0f}% chance"
+
+
+def _optional_metric_label(value: float | None, unit: str, digits: int = 1) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.{digits}f}{unit}"
+
+
 def _build_sample_rows(report: ForecastReport) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for sample in report.samples:
@@ -59,13 +84,17 @@ def _build_sample_rows(report: ForecastReport) -> list[dict[str, object]]:
                 "distance_km": round(sample.sample.distance_m / 1000.0, 2),
                 "elevation_m": sample.sample.elevation_m,
                 "temperature_c": round(sample.temperature_c, 1),
-                "apparent_temperature_c": round(sample.apparent_temperature_c, 1),
+                "apparent_temperature_c": _round_optional(
+                    sample.apparent_temperature_c, 1
+                ),
                 "wind_kph": round(sample.wind_kph, 1),
-                "wind_gust_kph": round(sample.wind_gust_kph, 1),
+                "wind_gust_kph": _round_optional(sample.wind_gust_kph, 1),
                 "wind_direction_deg": round(sample.wind_direction_deg, 1),
                 "cloud_cover_pct": round(sample.cloud_cover_pct, 1),
                 "precipitation_mm": round(sample.precipitation_mm, 2),
-                "precipitation_probability": round(sample.precipitation_probability, 1),
+                "precipitation_probability": _round_optional(
+                    sample.precipitation_probability, 1
+                ),
             }
         )
     return rows
@@ -99,7 +128,9 @@ def _build_key_moments(report: ForecastReport) -> list[dict[str, object]]:
             "temperature_c": round(sample.temperature_c, 1),
             "wind_kph": round(sample.wind_kph, 1),
             "precipitation_mm": round(sample.precipitation_mm, 2),
-            "precipitation_probability": round(sample.precipitation_probability, 1),
+            "precipitation_probability": _round_optional(
+                sample.precipitation_probability, 1
+            ),
         }
         for kind, label, sample in key_samples
     ]
@@ -110,10 +141,11 @@ def build_forecast_snapshot(
     title: str,
     report: ForecastReport,
     summary: ForecastSummary,
+    comparison_reports: Sequence[ForecastReport] = (),
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
     stamp = (generated_at or datetime.now(UTC)).astimezone(UTC)
-    return {
+    snapshot = {
         "report_kind": FORECAST_REPORT_KIND,
         "title": title,
         "generated_at": stamp.isoformat(),
@@ -132,10 +164,65 @@ def build_forecast_snapshot(
             "precipitation_total_mm": round(summary.precipitation_total_mm, 1),
             "wettest_time": summary.wettest_time.isoformat(),
             "wettest_precipitation_mm": round(summary.wettest_precipitation_mm, 2),
-            "wettest_probability_pct": round(summary.wettest_probability_pct, 1),
+            "wettest_probability_pct": _round_optional(
+                summary.wettest_probability_pct, 1
+            ),
         },
         "key_moments": _build_key_moments(report),
         "sample_rows": _build_sample_rows(report),
+    }
+    if comparison_reports:
+        snapshot["comparison"] = _build_comparison_snapshot(
+            report,
+            comparison_reports=comparison_reports,
+        )
+    return snapshot
+
+
+def _build_comparison_snapshot(
+    report: ForecastReport,
+    *,
+    comparison_reports: Sequence[ForecastReport],
+) -> dict[str, object]:
+    reports = [report, *comparison_reports]
+    return {
+        "primary_provider": report.provider_id,
+        "providers": [_build_comparison_provider_entry(item) for item in reports],
+    }
+
+
+def _build_comparison_provider_entry(report: ForecastReport) -> dict[str, object]:
+    summary = summarize_report(report)
+    coverage = {
+        "has_apparent_temperature": any(
+            sample.apparent_temperature_c is not None for sample in report.samples
+        ),
+        "has_wind_gust": any(
+            sample.wind_gust_kph is not None for sample in report.samples
+        ),
+        "has_precipitation_probability": any(
+            sample.precipitation_probability is not None for sample in report.samples
+        ),
+    }
+    definition = provider_definition(report.provider_id)
+    return {
+        "provider_id": report.provider_id,
+        "label": definition.label,
+        "source_label": report.source_label,
+        "summary": {
+            "temperature_min_c": round(summary.temperature_min_c, 1),
+            "temperature_max_c": round(summary.temperature_max_c, 1),
+            "wind_max_kph": round(summary.wind_max_kph, 1),
+            "precipitation_total_mm": round(summary.precipitation_total_mm, 1),
+            "wettest_time": summary.wettest_time.isoformat(),
+            "wettest_precipitation_mm": round(summary.wettest_precipitation_mm, 2),
+            "wettest_probability_pct": _round_optional(
+                summary.wettest_probability_pct, 1
+            ),
+        },
+        "key_moments": _build_key_moments(report),
+        "coverage": coverage,
+        "notes": list(report.notes),
     }
 
 
@@ -180,16 +267,16 @@ def _sample_rows_table(rows: list[dict[str, object]]) -> str:
                 [
                     "<tr>",
                     f'<td class="score-cell">{html.escape(timestamp)}</td>',
-                    f"<td>{html.escape(str(row.get('distance_km', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('elevation_m', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('temperature_c', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('apparent_temperature_c', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('wind_kph', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('wind_gust_kph', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('wind_direction_deg', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('cloud_cover_pct', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('precipitation_mm', '')))}</td>",
-                    f"<td>{html.escape(str(row.get('precipitation_probability', '')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('distance_km')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('elevation_m')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('temperature_c')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('apparent_temperature_c')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('wind_kph')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('wind_gust_kph')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('wind_direction_deg')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('cloud_cover_pct')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('precipitation_mm')))}</td>",
+                    f"<td>{html.escape(_display_cell(row.get('precipitation_probability')))}</td>",
                     "</tr>",
                 ]
             )
@@ -221,11 +308,172 @@ def _key_moments_grid(rows: list[dict[str, object]]) -> str:
                 f"{float(row.get('temperature_c', 0.0) or 0.0):.1f}C",
                 f"{float(row.get('wind_kph', 0.0) or 0.0):.1f} km/h wind",
                 f"{float(row.get('precipitation_mm', 0.0) or 0.0):.2f} mm rain",
-                f"{float(row.get('precipitation_probability', 0.0) or 0.0):.0f}% chance",
+                _format_probability_label(row.get("precipitation_probability")),
             ]
         )
         items.append((label, timestamp, details))
     return f'<div class="metric-grid">{_render_metric_cards(items)}</div>'
+
+
+def _comparison_coverage_label(coverage: dict[str, object]) -> str:
+    return " | ".join(
+        [
+            "Feels-like: yes"
+            if coverage.get("has_apparent_temperature")
+            else "Feels-like: no",
+            "Gust: yes" if coverage.get("has_wind_gust") else "Gust: no",
+            "Rain chance: yes"
+            if coverage.get("has_precipitation_probability")
+            else "Rain chance: no",
+        ]
+    )
+
+
+def _comparison_summary_table(providers: list[dict[str, object]]) -> str:
+    if not providers:
+        return '<div class="empty-state">No provider comparison data available.</div>'
+
+    body_rows: list[str] = []
+    for provider in providers:
+        summary = provider.get("summary")
+        if not isinstance(summary, dict):
+            summary = {}
+        coverage = provider.get("coverage")
+        if not isinstance(coverage, dict):
+            coverage = {}
+        notes = provider.get("notes")
+        note_items = notes if isinstance(notes, list) else []
+        wettest_label = _format_compact_timestamp(
+            summary.get("wettest_time"),
+            default="Unknown",
+        )
+        wettest_details = (
+            f"{float(summary.get('wettest_precipitation_mm', 0.0) or 0.0):.2f} mm"
+            f" • {_format_probability_label(summary.get('wettest_probability_pct'))}"
+        )
+        body_rows.append(
+            "".join(
+                [
+                    "<tr>",
+                    f"<td>{html.escape(str(provider.get('label') or provider.get('provider_id') or 'Provider'))}</td>",
+                    (
+                        "<td>"
+                        f"{float(summary.get('temperature_min_c', 0.0) or 0.0):.1f}C to "
+                        f"{float(summary.get('temperature_max_c', 0.0) or 0.0):.1f}C"
+                        "</td>"
+                    ),
+                    f"<td>{float(summary.get('wind_max_kph', 0.0) or 0.0):.1f} km/h</td>",
+                    (
+                        "<td>"
+                        f"{float(summary.get('precipitation_total_mm', 0.0) or 0.0):.1f} mm"
+                        "</td>"
+                    ),
+                    (
+                        "<td>"
+                        f"{html.escape(wettest_label)}"
+                        f'<div class="card-meta">{html.escape(wettest_details)}</div>'
+                        "</td>"
+                    ),
+                    f"<td>{html.escape(_comparison_coverage_label(coverage))}</td>",
+                    (
+                        "<td>"
+                        f"{html.escape(' | '.join(str(item) for item in note_items) or 'n/a')}"
+                        "</td>"
+                    ),
+                    "</tr>",
+                ]
+            )
+        )
+    return (
+        '<div class="table-wrap"><table class="results-table">'
+        "<thead><tr>"
+        "<th>Provider</th><th>Temp Range</th><th>Max Wind</th>"
+        "<th>Estimated Rain</th><th>Wettest Segment</th><th>Coverage</th><th>Notes</th>"
+        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
+    )
+
+
+def _comparison_key_moment_cards(providers: list[dict[str, object]]) -> str:
+    if not providers:
+        return '<div class="empty-state">No provider comparison data available.</div>'
+
+    cards: list[str] = []
+    for provider in providers:
+        key_moments = provider.get("key_moments")
+        if not isinstance(key_moments, list):
+            key_moments = []
+        rows: list[str] = []
+        for moment in key_moments:
+            if not isinstance(moment, dict):
+                continue
+            timestamp = _format_compact_timestamp(
+                moment.get("timestamp"),
+                default=str(moment.get("timestamp", "")),
+            )
+            details = " • ".join(
+                [
+                    f"{float(moment.get('temperature_c', 0.0) or 0.0):.1f}C",
+                    f"{float(moment.get('wind_kph', 0.0) or 0.0):.1f} km/h wind",
+                    f"{float(moment.get('precipitation_mm', 0.0) or 0.0):.2f} mm rain",
+                    _format_probability_label(moment.get("precipitation_probability")),
+                ]
+            )
+            rows.append(
+                "".join(
+                    [
+                        '<div class="metric-row">',
+                        f"<strong>{html.escape(str(moment.get('label') or moment.get('kind') or 'Moment'))}</strong>",
+                        f"<div>{html.escape(timestamp)}</div>",
+                        f'<div class="card-meta">{html.escape(details)}</div>',
+                        "</div>",
+                    ]
+                )
+            )
+        cards.append(
+            f"""
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{html.escape(str(provider.get("label") or provider.get("provider_id") or "Provider"))}</h3>
+                <span class="pill">{html.escape(str(provider.get("provider_id") or ""))}</span>
+              </div>
+              <div class="section-stack">
+                {"".join(rows) or '<div class="empty-state">No key moments available.</div>'}
+              </div>
+            </article>
+            """
+        )
+    return '<div class="section-stack">' + "".join(cards) + "</div>"
+
+
+def _comparison_section(snapshot: dict[str, object]) -> str:
+    comparison = snapshot.get("comparison")
+    if not isinstance(comparison, dict):
+        return ""
+    providers = comparison.get("providers")
+    if not isinstance(providers, list) or not providers:
+        return ""
+    typed_providers = [item for item in providers if isinstance(item, dict)]
+    if not typed_providers:
+        return ""
+    return f"""
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Provider Comparison</h2>
+          <span class="pill">{len(typed_providers)} sources</span>
+        </div>
+        <p class="section-caption">Side-by-side forecast summaries across the selected providers for the same sampled route timeline.</p>
+        {_comparison_summary_table(typed_providers)}
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Provider Key Moments</h2>
+          <span class="pill">Cross-source checkpoints</span>
+        </div>
+        <p class="section-caption">Start, coldest, windiest, wettest, and finish checkpoints shown provider by provider for quick comparison.</p>
+        {_comparison_key_moment_cards(typed_providers)}
+      </section>
+    """
 
 
 def render_forecast_html(
@@ -261,6 +509,7 @@ def render_forecast_html(
     wettest_label = _format_compact_timestamp(
         summary.get("wettest_time"), default="Unknown"
     )
+    wettest_probability = summary.get("wettest_probability_pct")
     cards = _render_metric_cards(
         [
             ("Start", start_label, timezone_name or None),
@@ -294,7 +543,7 @@ def render_forecast_html(
                 wettest_label,
                 (
                     f"{float(summary.get('wettest_precipitation_mm', 0.0) or 0.0):.2f} mm rain"
-                    f" • {float(summary.get('wettest_probability_pct', 0.0) or 0.0):.0f}% probability"
+                    f" • {_format_probability_label(wettest_probability)}"
                 ),
             ),
         ]
@@ -311,6 +560,7 @@ def render_forecast_html(
         meta_bits.append(html.escape(timezone_name))
     if source_label:
         meta_bits.append(html.escape(source_label))
+    comparison_html = _comparison_section(snapshot)
     body_html = f"""
     <section class="hero">
       <p class="eyebrow">Route Forecast</p>
@@ -326,6 +576,7 @@ def render_forecast_html(
     </section>
 
       <section class="section-stack">
+      {comparison_html}
       <section class="panel">
         <div class="panel-head">
           <h2>Forecast Overview</h2>

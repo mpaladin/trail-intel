@@ -104,6 +104,151 @@ class ForecastBundleTests(unittest.TestCase):
                 ["start", "coldest", "windiest", "wettest", "finish"],
             )
 
+    def test_generate_forecast_assets_writes_comparison_snapshot_and_html(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.open-meteo.com":
+                payload = {
+                    "hourly": {
+                        "time": [
+                            "2026-03-28T08:00",
+                            "2026-03-28T09:00",
+                            "2026-03-28T10:00",
+                        ],
+                        "temperature_2m": [8, 10, 12],
+                        "apparent_temperature": [7, 9, 11],
+                        "wind_speed_10m": [12, 15, 18],
+                        "wind_gusts_10m": [18, 22, 25],
+                        "wind_direction_10m": [270, 280, 290],
+                        "cloud_cover": [25, 35, 45],
+                        "precipitation": [0.0, 0.2, 0.4],
+                        "precipitation_probability": [10, 35, 60],
+                    }
+                }
+                latitudes = request.url.params["latitude"].split(",")
+                return httpx.Response(200, json=[payload for _ in latitudes])
+
+            if request.url.host == "api.met.no":
+                payload = {
+                    "properties": {
+                        "timeseries": [
+                            {
+                                "time": "2026-03-28T08:00:00Z",
+                                "data": {
+                                    "instant": {
+                                        "details": {
+                                            "air_temperature": 7.0,
+                                            "relative_humidity": 70.0,
+                                            "wind_speed": 4.0,
+                                            "wind_from_direction": 260.0,
+                                            "cloud_area_fraction": 30.0,
+                                        }
+                                    },
+                                    "next_1_hours": {
+                                        "details": {
+                                            "precipitation_amount": 0.1,
+                                            "probability_of_precipitation": 20.0,
+                                        }
+                                    },
+                                },
+                            },
+                            {
+                                "time": "2026-03-28T09:00:00Z",
+                                "data": {
+                                    "instant": {
+                                        "details": {
+                                            "air_temperature": 8.5,
+                                            "relative_humidity": 72.0,
+                                            "wind_speed": 4.5,
+                                            "wind_from_direction": 275.0,
+                                            "cloud_area_fraction": 40.0,
+                                        }
+                                    },
+                                    "next_6_hours": {
+                                        "details": {
+                                            "precipitation_amount": 1.2,
+                                            "probability_of_precipitation": 50.0,
+                                        }
+                                    },
+                                },
+                            },
+                            {
+                                "time": "2026-03-28T10:00:00Z",
+                                "data": {
+                                    "instant": {
+                                        "details": {
+                                            "air_temperature": 10.0,
+                                            "relative_humidity": 75.0,
+                                            "wind_speed": 5.0,
+                                            "wind_from_direction": 290.0,
+                                            "cloud_area_fraction": 55.0,
+                                        }
+                                    },
+                                    "next_1_hours": {
+                                        "details": {
+                                            "precipitation_amount": 0.3,
+                                            "probability_of_precipitation": 65.0,
+                                        }
+                                    },
+                                },
+                            },
+                        ]
+                    }
+                }
+                return httpx.Response(200, json=payload)
+
+            raise AssertionError(f"Unexpected forecast host: {request.url.host}")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "forecast.png"
+            site_dir = Path(tmp) / "site"
+
+            def render_without_map(report, output_path, *, title=None):
+                return original_render_report(
+                    report,
+                    output_path,
+                    title=title,
+                    use_real_map=False,
+                )
+
+            with patch(
+                "trailintel.forecast.bundle.render_report",
+                render_without_map,
+            ):
+                result = generate_forecast_assets(
+                    gpx_path=FIXTURE,
+                    start="2026-03-28T08:00:00+00:00",
+                    duration="02:00",
+                    output_path=output,
+                    site_dir=site_dir,
+                    title="Sample Loop Forecast",
+                    provider="open-meteo",
+                    compare_providers=["met-no"],
+                    http_client=client,
+                    now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+                    generated_at=datetime(2026, 3, 27, 12, 30, tzinfo=UTC),
+                )
+
+            self.assertEqual(len(result.comparison_reports), 1)
+
+            snapshot = json.loads(
+                (site_dir / "snapshot.json").read_text(encoding="utf-8")
+            )
+            comparison = snapshot.get("comparison")
+            self.assertIsInstance(comparison, dict)
+            self.assertEqual(comparison["primary_provider"], "open-meteo")
+            self.assertEqual(
+                [item["provider_id"] for item in comparison["providers"]],
+                ["open-meteo", "met-no"],
+            )
+
+            html = (site_dir / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Provider Comparison", html)
+            self.assertIn("Provider Key Moments", html)
+            self.assertIn("MET Norway (yr.no)", html)
+            self.assertIn("Open-Meteo", html)
+
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
         import math
         from datetime import timedelta
@@ -166,6 +311,7 @@ class ForecastBundleTests(unittest.TestCase):
                     )
                 )
             return ForecastReport(
+                provider_id="open-meteo",
                 route=route,
                 samples=samples,
                 start_time=start,
@@ -182,6 +328,69 @@ class ForecastBundleTests(unittest.TestCase):
                 )
                 self.assertTrue(output.exists())
                 self.assertGreater(output.stat().st_size, 0)
+
+    def test_render_report_handles_missing_optional_series(self) -> None:
+        from datetime import timedelta
+
+        from trailintel.forecast.models import (
+            Bounds,
+            ForecastReport,
+            RouteData,
+            RoutePoint,
+            SampleForecast,
+            SamplePoint,
+        )
+        from trailintel.forecast.render import render_report
+
+        start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
+        duration = timedelta(hours=2)
+        route = RouteData(
+            points=[
+                RoutePoint(lat=47.37, lon=8.54, elevation_m=410.0, distance_m=0.0),
+                RoutePoint(lat=47.39, lon=8.57, elevation_m=510.0, distance_m=14_000.0),
+            ],
+            total_distance_m=14_000.0,
+            total_ascent_m=100.0,
+            bounds=Bounds(min_lat=47.37, max_lat=47.39, min_lon=8.54, max_lon=8.57),
+        )
+        samples = [
+            SampleForecast(
+                sample=SamplePoint(
+                    index=index,
+                    fraction=index / 2,
+                    elapsed=timedelta(hours=index),
+                    timestamp=start + timedelta(hours=index),
+                    lat=47.37 + index * 0.01,
+                    lon=8.54 + index * 0.01,
+                    elevation_m=410.0 + index * 30,
+                    distance_m=index * 7_000.0,
+                ),
+                temperature_c=7.0 + index,
+                apparent_temperature_c=None,
+                wind_kph=12.0 + index,
+                wind_gust_kph=None,
+                wind_direction_deg=270.0 + index * 5,
+                cloud_cover_pct=35.0 + index * 10,
+                precipitation_mm=0.1 * index,
+                precipitation_probability=None,
+            )
+            for index in range(3)
+        ]
+        report = ForecastReport(
+            provider_id="met-no",
+            route=route,
+            samples=samples,
+            start_time=start,
+            end_time=start + duration,
+            duration=duration,
+            source_label="MET Norway Locationforecast API (yr.no data)",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "missing-optional.png"
+            render_report(report, output, use_real_map=False)
+            self.assertTrue(output.exists())
+            self.assertGreater(output.stat().st_size, 0)
 
 
 if __name__ == "__main__":

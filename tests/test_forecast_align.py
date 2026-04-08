@@ -68,6 +68,27 @@ class ForecastAlignTests(unittest.TestCase):
         result = align_forecasts([make_sample(0, 30)], [forecast])[0]
         self.assertAlmostEqual(result.wind_direction_deg, 0.0)
 
+    def test_align_forecasts_preserves_missing_optional_fields(self) -> None:
+        forecast = HourlyForecast(
+            times=[
+                datetime(2026, 3, 28, 8, 0, tzinfo=UTC),
+                datetime(2026, 3, 28, 9, 0, tzinfo=UTC),
+            ],
+            temperature_c=[10.0, 14.0],
+            apparent_temperature_c=[None, None],
+            wind_kph=[20.0, 28.0],
+            wind_gust_kph=[None, None],
+            wind_direction_deg=[270.0, 315.0],
+            cloud_cover_pct=[30.0, 70.0],
+            precipitation_mm=[1.0, 2.0],
+            precipitation_probability=[None, None],
+        )
+
+        result = align_forecasts([make_sample(0, 30)], [forecast])[0]
+        self.assertIsNone(result.apparent_temperature_c)
+        self.assertIsNone(result.wind_gust_kph)
+        self.assertIsNone(result.precipitation_probability)
+
     def test_align_forecasts_rejects_uncovered_times(self) -> None:
         forecast = HourlyForecast(
             times=[datetime(2026, 3, 28, 9, 0, tzinfo=UTC)],
