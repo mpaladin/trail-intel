@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 
 from trailintel.forecast.models import SamplePoint
-from trailintel.forecast.weather import OpenMeteoClient
+from trailintel.forecast.weather import MetNoClient, OpenMeteoClient, WeatherAPIClient
 
 
 def make_sample(index: int) -> SamplePoint:
@@ -76,6 +76,121 @@ class ForecastWeatherTests(unittest.TestCase):
         self.assertEqual(forecasts[0].wind_gust_kph[2], 32.0)
         self.assertEqual(forecasts[0].wind_direction_deg[1], 280.0)
         self.assertEqual(forecasts[0].cloud_cover_pct[0], 35.0)
+
+    def test_met_no_client_parses_hourly_and_period_derived_values(self) -> None:
+        payload = {
+            "properties": {
+                "timeseries": [
+                    {
+                        "time": "2026-03-28T08:00:00Z",
+                        "data": {
+                            "instant": {
+                                "details": {
+                                    "air_temperature": 8.0,
+                                    "relative_humidity": 70.0,
+                                    "wind_speed": 4.0,
+                                    "wind_from_direction": 270.0,
+                                    "cloud_area_fraction": 35.0,
+                                }
+                            },
+                            "next_1_hours": {
+                                "details": {
+                                    "precipitation_amount": 0.2,
+                                    "probability_of_precipitation": 30.0,
+                                }
+                            },
+                        },
+                    },
+                    {
+                        "time": "2026-03-28T09:00:00Z",
+                        "data": {
+                            "instant": {
+                                "details": {
+                                    "air_temperature": 9.0,
+                                    "relative_humidity": 72.0,
+                                    "wind_speed": 5.0,
+                                    "wind_from_direction": 280.0,
+                                    "cloud_area_fraction": 45.0,
+                                }
+                            },
+                            "next_6_hours": {
+                                "details": {
+                                    "precipitation_amount": 1.8,
+                                    "probability_of_precipitation": 60.0,
+                                }
+                            },
+                        },
+                    },
+                ]
+            }
+        }
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        service = MetNoClient(http_client=client)
+
+        forecasts = service.fetch_hourly([make_sample(0)])
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertAlmostEqual(forecasts[0].wind_kph[0], 14.4)
+        self.assertIsNone(forecasts[0].wind_gust_kph[0])
+        self.assertAlmostEqual(forecasts[0].precipitation_mm[1], 0.3)
+        self.assertEqual(forecasts[0].precipitation_probability[1], 60.0)
+        self.assertIn("next_6_hours", " ".join(forecasts[0].notes))
+
+    def test_weatherapi_client_parses_hourly_payload(self) -> None:
+        payload = {
+            "forecast": {
+                "forecastday": [
+                    {
+                        "hour": [
+                            {
+                                "time_epoch": 1774684800,
+                                "temp_c": 8.0,
+                                "feelslike_c": 6.0,
+                                "wind_kph": 12.0,
+                                "gust_kph": 18.0,
+                                "wind_degree": 260.0,
+                                "cloud": 40.0,
+                                "precip_mm": 0.0,
+                                "chance_of_rain": 10.0,
+                            },
+                            {
+                                "time_epoch": 1774688400,
+                                "temp_c": 9.0,
+                                "feelslike_c": 7.0,
+                                "wind_kph": 13.0,
+                                "gust_kph": 19.0,
+                                "wind_degree": 270.0,
+                                "cloud": 45.0,
+                                "precip_mm": 0.2,
+                                "chance_of_rain": 20.0,
+                            },
+                        ]
+                    }
+                ]
+            }
+        }
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=payload)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        service = WeatherAPIClient(
+            http_client=client,
+            api_key="test-key",
+            request_interval_seconds=0.0,
+        )
+
+        forecasts = service.fetch_hourly([make_sample(0)])
+
+        self.assertEqual(len(forecasts), 1)
+        self.assertEqual(forecasts[0].temperature_c[1], 9.0)
+        self.assertEqual(forecasts[0].apparent_temperature_c[0], 6.0)
+        self.assertEqual(forecasts[0].wind_gust_kph[1], 19.0)
+        self.assertEqual(forecasts[0].precipitation_probability[1], 20.0)
 
 
 if __name__ == "__main__":

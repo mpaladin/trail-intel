@@ -152,13 +152,16 @@ def render_temperature_panel(axis, report: ForecastReport) -> None:
     temperature = np.array(
         [sample.temperature_c for sample in report.samples], dtype=float
     )
-    apparent = np.array(
-        [sample.apparent_temperature_c for sample in report.samples],
-        dtype=float,
+    apparent = optional_series(
+        [sample.apparent_temperature_c for sample in report.samples]
     )
+    has_apparent = series_has_values(apparent)
 
-    baseline, ceiling = padded_limits(np.concatenate([temperature, apparent]), pad=1.5)
-    fill_top = np.maximum(temperature, apparent)
+    limit_values = [temperature]
+    if has_apparent:
+        limit_values.append(apparent[~np.isnan(apparent)])
+    baseline, ceiling = padded_limits(np.concatenate(limit_values), pad=1.5)
+    fill_top = np.fmax(temperature, np.nan_to_num(apparent, nan=temperature))
     plot_ax.fill_between(
         timestamps,
         baseline,
@@ -168,16 +171,17 @@ def render_temperature_panel(axis, report: ForecastReport) -> None:
         zorder=1,
     )
     plot_ax.plot(timestamps, temperature, color=TEMPERATURE, linewidth=1.4, zorder=3)
-    plot_ax.plot(timestamps, apparent, color=FEELS_LIKE, linewidth=1.1, zorder=4)
+    if has_apparent:
+        plot_ax.plot(timestamps, apparent, color=FEELS_LIKE, linewidth=1.1, zorder=4)
 
     style_chart_axis(plot_ax, timestamps)
     plot_ax.set_ylim(baseline, ceiling)
+    legend_items = [("Temperature (°C)", TEMPERATURE)]
+    if has_apparent:
+        legend_items.append(("Feels Like (°C)", FEELS_LIKE))
     add_line_legend(
         axis,
-        [
-            ("Temperature (°C)", TEMPERATURE),
-            ("Feels Like (°C)", FEELS_LIKE),
-        ],
+        legend_items,
     )
 
 
@@ -186,10 +190,10 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
     plot_ax = axis.inset_axes([0.08, 0.19, 0.68, 0.60])
 
     timestamps = display_timestamps(report)
-    probability = np.array(
-        [sample.precipitation_probability for sample in report.samples],
-        dtype=float,
+    probability = optional_series(
+        [sample.precipitation_probability for sample in report.samples]
     )
+    has_probability = series_has_values(probability)
     cloud_cover = np.array(
         [sample.cloud_cover_pct for sample in report.samples],
         dtype=float,
@@ -201,10 +205,13 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
 
     plot_ax.fill_between(timestamps, 0, cloud_cover, color=CLOUD, alpha=0.22, zorder=1)
     plot_ax.plot(timestamps, cloud_cover, color=CLOUD, linewidth=1.0, zorder=2)
-    plot_ax.plot(timestamps, probability, color=PROBABILITY, linewidth=1.1, zorder=3)
-    plot_ax.fill_between(
-        timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2
-    )
+    if has_probability:
+        plot_ax.plot(
+            timestamps, probability, color=PROBABILITY, linewidth=1.1, zorder=3
+        )
+        plot_ax.fill_between(
+            timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2
+        )
 
     precipitation_ax = plot_ax.twinx()
     precipitation_ax.fill_between(
@@ -247,13 +254,18 @@ def render_precipitation_panel(axis, report: ForecastReport) -> None:
     precipitation_ax.spines["left"].set_visible(False)
     precipitation_ax.grid(False)
 
-    add_line_legend(
-        axis,
+    legend_items: list[tuple[str, str]] = []
+    if has_probability:
+        legend_items.append(("Rain Chance (%)", PROBABILITY))
+    legend_items.extend(
         [
-            ("Rain Chance (%)", PROBABILITY),
             ("Cloud Cover (%)", CLOUD),
             ("Rain (mm)", INTENSITY),
-        ],
+        ]
+    )
+    add_line_legend(
+        axis,
+        legend_items,
     )
 
 
@@ -372,27 +384,35 @@ def render_wind_panel(axis, report: ForecastReport) -> None:
 
     timestamps = display_timestamps(report)
     wind = np.array([sample.wind_kph for sample in report.samples], dtype=float)
-    gust = np.array([sample.wind_gust_kph for sample in report.samples], dtype=float)
+    gust = optional_series([sample.wind_gust_kph for sample in report.samples])
+    has_gust = series_has_values(gust)
 
-    baseline = max(0.0, math.floor(min(wind.min(), gust.min()) - 1))
-    ceiling = math.ceil(max(wind.max(), gust.max()) + 1)
-    plot_ax.fill_between(
-        timestamps, baseline, gust, color="#8c5d17", alpha=0.35, zorder=1
-    )
+    baseline_source = wind
+    ceiling_source = wind
+    if has_gust:
+        baseline_source = np.concatenate([wind, gust[~np.isnan(gust)]])
+        ceiling_source = baseline_source
+    baseline = max(0.0, math.floor(float(np.nanmin(baseline_source)) - 1))
+    ceiling = math.ceil(float(np.nanmax(ceiling_source)) + 1)
+    if has_gust:
+        plot_ax.fill_between(
+            timestamps, baseline, gust, color="#8c5d17", alpha=0.35, zorder=1
+        )
     plot_ax.fill_between(
         timestamps, baseline, wind, color="#72808a", alpha=0.22, zorder=2
     )
     plot_ax.plot(timestamps, wind, color=WIND, linewidth=1.1, zorder=3)
-    plot_ax.plot(timestamps, gust, color=GUST, linewidth=1.0, zorder=4)
+    if has_gust:
+        plot_ax.plot(timestamps, gust, color=GUST, linewidth=1.0, zorder=4)
 
     style_chart_axis(plot_ax, timestamps)
     plot_ax.set_ylim(baseline, ceiling)
+    legend_items = [("Wind (km/h)", WIND)]
+    if has_gust:
+        legend_items.append(("Wind Gust (km/h)", GUST))
     add_line_legend(
         axis,
-        [
-            ("Wind (km/h)", WIND),
-            ("Wind Gust (km/h)", GUST),
-        ],
+        legend_items,
     )
 
 
@@ -507,6 +527,8 @@ def style_chart_axis(axis, timestamps: list[datetime]) -> None:
 
 
 def add_line_legend(axis, items: list[tuple[str, str]]) -> None:
+    if not items:
+        return
     handles = [
         Line2D(
             [0],
@@ -538,6 +560,17 @@ def add_line_legend(axis, items: list[tuple[str, str]]) -> None:
 def display_timestamps(report: ForecastReport) -> list[datetime]:
     timezone = report.start_time.tzinfo
     return [sample.sample.timestamp.astimezone(timezone) for sample in report.samples]
+
+
+def optional_series(values: list[float | None]) -> np.ndarray:
+    return np.array(
+        [np.nan if value is None else float(value) for value in values],
+        dtype=float,
+    )
+
+
+def series_has_values(values: np.ndarray) -> bool:
+    return not np.all(np.isnan(values))
 
 
 def choose_time_ticks(timestamps: list[datetime], max_ticks: int) -> list[datetime]:
