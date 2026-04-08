@@ -1,10 +1,8 @@
 import {
-  formatDateTime,
   formatDistanceKm,
   formatDuration,
   formatFullDateTime,
   formatNumber,
-  formatPercent,
 } from "../forecast/format";
 import type { BuildForecastResult, ForecastReport, SampleForecast } from "../forecast/types";
 import { buildRouteArrows } from "../map/overlay";
@@ -27,13 +25,19 @@ export interface ReportImageLayout {
   elevation: ReportImageRect;
 }
 
+interface AxisScale {
+  min: number;
+  max: number;
+  ticks: number[];
+}
+
 const IMAGE_SIZE = 1600;
 const OUTER = 44;
 const GAP = 24;
 const COLUMN_GAP = 28;
-const HEADER_HEIGHT = 190;
-const TOP_PANEL_HEIGHT = 320;
-const RIGHT_PANEL_HEIGHT = 410;
+const HEADER_HEIGHT = 230;
+const TOP_PANEL_HEIGHT = 300;
+const RIGHT_PANEL_HEIGHT = 390;
 
 export function buildReportImageLayout(size = IMAGE_SIZE): ReportImageLayout {
   const innerWidth = size - OUTER * 2;
@@ -131,20 +135,37 @@ function drawHeader(
     `${formatNumber(summary.windMaxKph)} km/h max wind`,
     `${formatNumber(summary.precipitationTotalMm, 1)} mm rain`,
   ];
+  const titleStyles = [
+    { font: "700 58px Iowan Old Style, Georgia, serif", lineHeight: 62 },
+    { font: "700 52px Iowan Old Style, Georgia, serif", lineHeight: 58 },
+    { font: "700 48px Iowan Old Style, Georgia, serif", lineHeight: 54 },
+  ];
+  const titleX = rect.x + 36;
+  const titleY = rect.y + 28;
+  const titleWidth = rect.width - 72;
+
+  let titleLines = [report.title];
+  let titleLineHeight = 58;
+  for (const style of titleStyles) {
+    context.font = style.font;
+    const candidate = wrapTextLines(context, report.title, titleWidth);
+    titleLines = candidate;
+    titleLineHeight = style.lineHeight;
+    if (candidate.length <= 2) {
+      break;
+    }
+  }
 
   context.fillStyle = "#ffffff";
   context.textBaseline = "top";
-  context.font = "700 58px Iowan Old Style, Georgia, serif";
-  drawWrappedText(context, report.title, rect.x + 36, rect.y + 26, rect.width - 72, 64, 2);
+  context.font = titleStyles.find((style) => style.lineHeight === titleLineHeight)?.font ?? titleStyles[1].font;
+  drawWrappedText(context, report.title, titleX, titleY, titleWidth, titleLineHeight, 2);
 
-  context.font = "500 24px Avenir Next, Segoe UI, sans-serif";
-  context.fillText(dateLabel, rect.x + 38, rect.y + 128);
+  const dateY = titleY + Math.min(titleLines.length, 2) * titleLineHeight + 8;
+  context.font = "500 22px Avenir Next, Segoe UI, sans-serif";
+  context.fillText(dateLabel, rect.x + 38, dateY);
 
-  let pillX = rect.x + 36;
-  const pillY = rect.y + rect.height - 56;
-  for (const pill of statPills) {
-    pillX += drawPill(context, pill, pillX, pillY) + 12;
-  }
+  drawPillRows(context, statPills, rect.x + 36, dateY + 42, rect.width - 72, 12, 10);
 }
 
 function drawTemperaturePanel(
@@ -160,7 +181,7 @@ function drawTemperaturePanel(
   );
   drawLineChart(
     context,
-    insetRect(rect, 30, 112, 30, 40),
+    insetRect(rect, 26, 110, 22, 34),
     report.samples,
     report.timezoneName,
     [
@@ -170,6 +191,11 @@ function drawTemperaturePanel(
         values: report.samples.map((sample) => sample.apparentTemperatureC ?? sample.temperatureC),
       },
     ],
+    {
+      unit: "°C",
+      pad: 1.5,
+      minimumStep: 1,
+    },
   );
 }
 
@@ -185,24 +211,30 @@ function drawPrecipitationPanel(
     "Rain amount, chance, and cloud cover through the forecast window.",
   );
 
-  const plot = insetRect(rect, 30, 112, 30, 40);
+  const frame = insetRect(rect, 26, 110, 22, 34);
+  const plot = insetRect(frame, 58, 10, 52, 38);
   const precipitation = report.samples.map((sample) => sample.precipitationMm);
   const chance = report.samples.map((sample) => sample.precipitationProbability ?? 0);
   const cloud = report.samples.map((sample) => sample.cloudCoverPct);
+  const probabilityScale = buildNiceScale(0, 100, 5, { fixedMin: 0, fixedMax: 100, minimumStep: 20 });
   const precipMax = Math.max(0.4, ...precipitation);
-  drawChartGrid(context, plot, 4);
+  const precipitationScale = buildNiceScale(0, precipMax, 4, { fixedMin: 0, minimumStep: 0.5 });
+  drawChartGrid(context, plot, probabilityScale);
 
   precipitation.forEach((value, index) => {
     const x = pointX(plot, precipitation.length, index);
     const barWidth = Math.max(10, plot.width / Math.max(16, precipitation.length * 1.8));
-    const barHeight = (value / precipMax) * plot.height * 0.58;
-    context.fillStyle = "rgba(255, 174, 56, 0.75)";
-    roundRectPath(context, x - barWidth / 2, plot.y + plot.height - barHeight, barWidth, barHeight, 10);
+    const y = pointY(plot, value, precipitationScale.min, precipitationScale.max);
+    const barHeight = plot.y + plot.height - y;
+    context.fillStyle = "rgba(255, 174, 56, 0.8)";
+    roundRectPath(context, x - barWidth / 2, y, barWidth, barHeight, 10);
     context.fill();
   });
 
-  drawSeries(context, plot, chance, 0, 100, "#73bdf5", 3.5);
-  drawSeries(context, plot, cloud, 0, 100, "#a7abb3", 2.8);
+  drawSeries(context, plot, chance, probabilityScale.min, probabilityScale.max, "#73bdf5", 3.5);
+  drawSeries(context, plot, cloud, probabilityScale.min, probabilityScale.max, "#a7abb3", 2.8);
+  drawYAxisLabels(context, plot, probabilityScale, "%", "left");
+  drawYAxisLabels(context, plot, precipitationScale, "mm", "right");
   drawTimeLabels(context, plot, report.samples, report.timezoneName);
 }
 
@@ -282,13 +314,19 @@ function drawWindPanel(
   drawChartPanel(context, rect, "Wind", "Sustained wind and gusts along the forecast route.");
   drawLineChart(
     context,
-    insetRect(rect, 30, 112, 30, 44),
+    insetRect(rect, 26, 110, 22, 38),
     report.samples,
     report.timezoneName,
     [
       { color: "#8fc2df", values: report.samples.map((sample) => sample.windKph) },
       { color: "#ffad2f", values: report.samples.map((sample) => sample.windGustKph ?? sample.windKph) },
     ],
+    {
+      unit: "km/h",
+      fixedMin: 0,
+      pad: 1,
+      minimumStep: 2,
+    },
   );
 }
 
@@ -298,10 +336,9 @@ function drawElevationPanel(
   report: ForecastReport,
 ): void {
   drawChartPanel(context, rect, "Elevation", "Route profile plus quick ride summary.");
-  const plot = insetRect(rect, 30, 112, 30, 90);
+  const plot = insetRect(rect, 26, 108, 22, 92);
   const values = report.samples.map((sample) => sample.sample.elevationM ?? 0);
-  drawAreaChart(context, plot, values, "#d1912b", "#7e551a");
-  drawTimeLabels(context, plot, report.samples, report.timezoneName);
+  drawAreaChart(context, plot, values, report.samples, report.timezoneName, "#d1912b", "#7e551a");
 
   context.fillStyle = "#d0ccc4";
   context.font = "600 22px Avenir Next, Segoe UI, sans-serif";
@@ -325,8 +362,8 @@ function drawChartPanel(
   context.font = "700 34px Iowan Old Style, Georgia, serif";
   context.fillText(title, rect.x + 26, rect.y + 22);
   context.fillStyle = "#d0ccc4";
-  context.font = "500 18px Avenir Next, Segoe UI, sans-serif";
-  context.fillText(subtitle, rect.x + 26, rect.y + 68, rect.width - 52);
+  context.font = "500 17px Avenir Next, Segoe UI, sans-serif";
+  drawWrappedText(context, subtitle, rect.x + 26, rect.y + 66, rect.width - 52, 21, 2);
 }
 
 function drawLineChart(
@@ -335,49 +372,70 @@ function drawLineChart(
   samples: SampleForecast[],
   timezoneName: string,
   series: Array<{ color: string; values: number[] }>,
+  options: {
+    unit: string;
+    fixedMin?: number;
+    fixedMax?: number;
+    pad?: number;
+    minimumStep?: number;
+  },
 ): void {
-  drawChartGrid(context, rect, 4);
+  const plot = insetRect(rect, 58, 10, 16, 38);
   const allValues = series.flatMap((entry) => entry.values);
   const minValue = Math.min(...allValues);
   const maxValue = Math.max(...allValues);
-  const span = Math.max(maxValue - minValue, 1);
-  const paddedMin = minValue - span * 0.12;
-  const paddedMax = maxValue + span * 0.12;
+  const padding = options.pad ?? 0;
+  const scale = buildNiceScale(minValue - padding, maxValue + padding, 4, {
+    fixedMin: options.fixedMin,
+    fixedMax: options.fixedMax,
+    minimumStep: options.minimumStep,
+  });
+  drawChartGrid(context, plot, scale);
   for (const entry of series) {
-    drawSeries(context, rect, entry.values, paddedMin, paddedMax, entry.color, 4);
+    drawSeries(context, plot, entry.values, scale.min, scale.max, entry.color, 4);
   }
-  drawTimeLabels(context, rect, samples, timezoneName);
+  drawYAxisLabels(context, plot, scale, options.unit, "left");
+  drawTimeLabels(context, plot, samples, timezoneName);
 }
 
 function drawAreaChart(
   context: CanvasRenderingContext2D,
   rect: ReportImageRect,
   values: number[],
+  samples: SampleForecast[],
+  timezoneName: string,
   lineColor: string,
   fillColor: string,
 ): void {
-  drawChartGrid(context, rect, 4);
+  const plot = insetRect(rect, 58, 10, 16, 38);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
-  const span = Math.max(maxValue - minValue, 100);
-  const paddedMin = minValue - span * 0.12;
-  const paddedMax = maxValue + span * 0.12;
+  const baseline = Math.floor(minValue / 100) * 100;
+  const ceiling = Math.max(baseline + 100, Math.ceil(maxValue / 100) * 100);
+  const scale = buildNiceScale(baseline, ceiling, 4, {
+    fixedMin: baseline,
+    fixedMax: ceiling,
+    minimumStep: 50,
+  });
+  drawChartGrid(context, plot, scale);
   context.beginPath();
   values.forEach((value, index) => {
-    const x = pointX(rect, values.length, index);
-    const y = pointY(rect, value, paddedMin, paddedMax);
+    const x = pointX(plot, values.length, index);
+    const y = pointY(plot, value, scale.min, scale.max);
     if (index === 0) {
-      context.moveTo(x, rect.y + rect.height);
+      context.moveTo(x, plot.y + plot.height);
       context.lineTo(x, y);
     } else {
       context.lineTo(x, y);
     }
   });
-  context.lineTo(rect.x + rect.width, rect.y + rect.height);
+  context.lineTo(plot.x + plot.width, plot.y + plot.height);
   context.closePath();
   context.fillStyle = `${fillColor}aa`;
   context.fill();
-  drawSeries(context, rect, values, paddedMin, paddedMax, lineColor, 3.5);
+  drawSeries(context, plot, values, scale.min, scale.max, lineColor, 3.5);
+  drawYAxisLabels(context, plot, scale, "m", "left");
+  drawTimeLabels(context, plot, samples, timezoneName);
 }
 
 function drawSeries(
@@ -404,11 +462,11 @@ function drawSeries(
   context.stroke();
 }
 
-function drawChartGrid(context: CanvasRenderingContext2D, rect: ReportImageRect, rows: number): void {
+function drawChartGrid(context: CanvasRenderingContext2D, rect: ReportImageRect, scale: AxisScale): void {
   context.strokeStyle = "rgba(98, 98, 98, 0.45)";
   context.lineWidth = 1;
-  for (let index = 0; index < rows; index += 1) {
-    const y = rect.y + (rect.height * index) / Math.max(1, rows - 1);
+  for (const tick of scale.ticks) {
+    const y = pointY(rect, tick, scale.min, scale.max);
     context.beginPath();
     context.moveTo(rect.x, y);
     context.lineTo(rect.x + rect.width, y);
@@ -429,13 +487,130 @@ function drawTimeLabels(
     (sample): sample is SampleForecast => Boolean(sample),
   );
   context.fillStyle = "#d0ccc4";
-  context.font = "500 16px Avenir Next, Segoe UI, sans-serif";
-  context.textAlign = "center";
+  context.font = "500 14px Avenir Next, Segoe UI, sans-serif";
   chosen.forEach((sample, index) => {
     const x = rect.x + (rect.width * index) / Math.max(1, chosen.length - 1);
-    context.fillText(formatDateTime(sample.sample.timestampMs, timezoneName), x, rect.y + rect.height + 28);
+    context.textAlign = index === 0 ? "left" : index === chosen.length - 1 ? "right" : "center";
+    context.fillText(formatChartTimeLabel(sample.sample.timestampMs, timezoneName), x, rect.y + rect.height + 26);
   });
   context.textAlign = "left";
+}
+
+function drawYAxisLabels(
+  context: CanvasRenderingContext2D,
+  rect: ReportImageRect,
+  scale: AxisScale,
+  unit: string,
+  side: "left" | "right",
+): void {
+  const digits = axisDigits(scale);
+  context.fillStyle = "#d0ccc4";
+  context.font = "500 14px Avenir Next, Segoe UI, sans-serif";
+  context.textBaseline = "middle";
+  context.textAlign = side === "left" ? "right" : "left";
+  for (const tick of scale.ticks) {
+    const y = pointY(rect, tick, scale.min, scale.max);
+    const x = side === "left" ? rect.x - 12 : rect.x + rect.width + 12;
+    context.fillText(formatAxisLabel(tick, unit, digits), x, y);
+  }
+  context.textBaseline = "top";
+  context.textAlign = "left";
+}
+
+function buildNiceScale(
+  minValue: number,
+  maxValue: number,
+  tickCount: number,
+  options: {
+    fixedMin?: number;
+    fixedMax?: number;
+    minimumStep?: number;
+  } = {},
+): AxisScale {
+  const baseMin = options.fixedMin ?? minValue;
+  let baseMax = options.fixedMax ?? maxValue;
+  if (!Number.isFinite(baseMin) || !Number.isFinite(baseMax)) {
+    return { min: 0, max: 1, ticks: [0, 0.5, 1] };
+  }
+  if (baseMax <= baseMin) {
+    baseMax = baseMin + 1;
+  }
+
+  const rawRange = baseMax - baseMin;
+  let step = niceNumber(rawRange / Math.max(1, tickCount - 1), true);
+  if (options.minimumStep) {
+    step = Math.max(step, options.minimumStep);
+  }
+
+  const scaleMin = options.fixedMin ?? Math.floor(baseMin / step) * step;
+  let scaleMax = options.fixedMax ?? Math.ceil(baseMax / step) * step;
+  if (scaleMax <= scaleMin) {
+    scaleMax = scaleMin + step;
+  }
+
+  const ticks: number[] = [];
+  for (let value = scaleMin; value <= scaleMax + step * 0.25; value += step) {
+    ticks.push(Number(value.toFixed(4)));
+  }
+  return {
+    min: scaleMin,
+    max: scaleMax,
+    ticks,
+  };
+}
+
+function niceNumber(value: number, round: boolean): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+  const exponent = Math.floor(Math.log10(value));
+  const fraction = value / 10 ** exponent;
+  let niceFraction: number;
+  if (round) {
+    if (fraction < 1.5) {
+      niceFraction = 1;
+    } else if (fraction < 3) {
+      niceFraction = 2;
+    } else if (fraction < 7) {
+      niceFraction = 5;
+    } else {
+      niceFraction = 10;
+    }
+  } else if (fraction <= 1) {
+    niceFraction = 1;
+  } else if (fraction <= 2) {
+    niceFraction = 2;
+  } else if (fraction <= 5) {
+    niceFraction = 5;
+  } else {
+    niceFraction = 10;
+  }
+  return niceFraction * 10 ** exponent;
+}
+
+function axisDigits(scale: AxisScale): number {
+  const step = scale.ticks.length > 1 ? Math.abs(scale.ticks[1] - scale.ticks[0]) : Math.abs(scale.max - scale.min);
+  if (step >= 1) {
+    return 0;
+  }
+  if (step >= 0.1) {
+    return 1;
+  }
+  return 2;
+}
+
+function formatAxisLabel(value: number, unit: string, digits: number): string {
+  const spacer = unit === "%" || unit.startsWith("°") ? "" : " ";
+  return `${value.toFixed(digits)}${spacer}${unit}`;
+}
+
+function formatChartTimeLabel(timestampMs: number, timezoneName: string): string {
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: timezoneName,
+  }).format(new Date(timestampMs));
 }
 
 function projectRoutePoint(
@@ -500,15 +675,44 @@ function drawPanel(
 
 function drawPill(context: CanvasRenderingContext2D, text: string, x: number, y: number): number {
   context.save();
-  context.font = "700 20px Avenir Next, Segoe UI, sans-serif";
+  context.font = "700 18px Avenir Next, Segoe UI, sans-serif";
   const textWidth = context.measureText(text).width;
-  const width = textWidth + 28;
-  roundRectPath(context, x, y, width, 34, 17);
+  const width = textWidth + 24;
+  roundRectPath(context, x, y, width, 32, 16);
   context.fillStyle = "rgba(255, 255, 255, 0.18)";
   context.fill();
   context.fillStyle = "#ffffff";
   context.textBaseline = "middle";
-  context.fillText(text, x + 14, y + 17);
+  context.fillText(text, x + 12, y + 16);
+  context.restore();
+  return width;
+}
+
+function drawPillRows(
+  context: CanvasRenderingContext2D,
+  pills: string[],
+  x: number,
+  y: number,
+  maxWidth: number,
+  columnGap: number,
+  rowGap: number,
+): void {
+  let cursorX = x;
+  let cursorY = y;
+  for (const pill of pills) {
+    const pillWidth = measurePillWidth(context, pill);
+    if (cursorX > x && cursorX + pillWidth > x + maxWidth) {
+      cursorX = x;
+      cursorY += 32 + rowGap;
+    }
+    cursorX += drawPill(context, pill, cursorX, cursorY) + columnGap;
+  }
+}
+
+function measurePillWidth(context: CanvasRenderingContext2D, text: string): number {
+  context.save();
+  context.font = "700 18px Avenir Next, Segoe UI, sans-serif";
+  const width = context.measureText(text).width + 24;
   context.restore();
   return width;
 }
@@ -522,12 +726,24 @@ function drawWrappedText(
   lineHeight: number,
   maxLines: number,
 ): void {
-  const words = text.split(/\s+/);
+  wrapTextLines(context, text, maxWidth)
+    .slice(0, maxLines)
+    .forEach((line, index) => {
+    context.fillText(line, x, y + index * lineHeight);
+  });
+}
+
+function wrapTextLines(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (context.measureText(next).width <= maxWidth || !current) {
+    if (!current || context.measureText(next).width <= maxWidth) {
       current = next;
     } else {
       lines.push(current);
@@ -537,10 +753,7 @@ function drawWrappedText(
   if (current) {
     lines.push(current);
   }
-
-  lines.slice(0, maxLines).forEach((line, index) => {
-    context.fillText(line, x, y + index * lineHeight);
-  });
+  return lines.length ? lines : [text];
 }
 
 function roundRectPath(
