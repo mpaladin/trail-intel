@@ -31,6 +31,11 @@ interface AxisScale {
   ticks: number[];
 }
 
+interface LegendItem {
+  label: string;
+  color: string;
+}
+
 const IMAGE_SIZE = 1600;
 const OUTER = 44;
 const GAP = 24;
@@ -179,9 +184,13 @@ function drawTemperaturePanel(
     "Temperature",
     "Ambient and feels-like temperature across the route.",
   );
+  drawChartLegend(context, rect, [
+    { label: "Temperature", color: "#66b9ff" },
+    { label: "Feels like", color: "#ffb03a" },
+  ]);
   drawLineChart(
     context,
-    insetRect(rect, 26, 110, 22, 34),
+    insetRect(rect, 26, 134, 22, 34),
     report.samples,
     report.timezoneName,
     [
@@ -210,8 +219,13 @@ function drawPrecipitationPanel(
     "Precipitation and Cloud Cover",
     "Rain amount, chance, and cloud cover through the forecast window.",
   );
+  drawChartLegend(context, rect, [
+    { label: "Rain chance", color: "#73bdf5" },
+    { label: "Cloud cover", color: "#a7abb3" },
+    { label: "Rain mm", color: "#ffae38" },
+  ]);
 
-  const frame = insetRect(rect, 26, 110, 22, 34);
+  const frame = insetRect(rect, 26, 134, 22, 34);
   const plot = insetRect(frame, 58, 10, 52, 38);
   const precipitation = report.samples.map((sample) => sample.precipitationMm);
   const chance = report.samples.map((sample) => sample.precipitationProbability ?? 0);
@@ -312,9 +326,13 @@ function drawWindPanel(
   report: ForecastReport,
 ): void {
   drawChartPanel(context, rect, "Wind", "Sustained wind and gusts along the forecast route.");
+  drawChartLegend(context, rect, [
+    { label: "Wind", color: "#8fc2df" },
+    { label: "Gusts", color: "#ffad2f" },
+  ]);
   drawLineChart(
     context,
-    insetRect(rect, 26, 110, 22, 38),
+    insetRect(rect, 26, 134, 22, 38),
     report.samples,
     report.timezoneName,
     [
@@ -364,6 +382,32 @@ function drawChartPanel(
   context.fillStyle = "#d0ccc4";
   context.font = "500 17px Avenir Next, Segoe UI, sans-serif";
   drawWrappedText(context, subtitle, rect.x + 26, rect.y + 66, rect.width - 52, 21, 2);
+}
+
+function drawChartLegend(
+  context: CanvasRenderingContext2D,
+  rect: ReportImageRect,
+  items: LegendItem[],
+): void {
+  let x = rect.x + 26;
+  const y = rect.y + 106;
+  context.save();
+  context.font = "600 16px Avenir Next, Segoe UI, sans-serif";
+  context.textBaseline = "middle";
+  for (const item of items) {
+    context.strokeStyle = item.color;
+    context.fillStyle = item.color;
+    context.lineWidth = 4;
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + 18, y);
+    context.stroke();
+
+    context.fillStyle = "#d0ccc4";
+    context.fillText(item.label, x + 28, y);
+    x += 28 + context.measureText(item.label).width + 24;
+  }
+  context.restore();
 }
 
 function drawLineChart(

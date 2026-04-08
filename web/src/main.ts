@@ -31,6 +31,8 @@ interface AppState {
   exporting: boolean;
   error: string;
   exportError: string;
+  exportPreviewUrl: string;
+  exportPreviewKey: string;
   installPrompt: BeforeInstallPromptEvent | null;
   installDismissed: boolean;
 }
@@ -49,6 +51,8 @@ const state: AppState = {
   exporting: false,
   error: "",
   exportError: "",
+  exportPreviewUrl: "",
+  exportPreviewKey: "",
   installPrompt: null,
   installDismissed: false,
 };
@@ -186,7 +190,10 @@ function setupForm(): void {
     state.loading = true;
     state.error = "";
     state.exportError = "";
+    clearExportPreview();
     renderStatus();
+    renderExportState();
+    renderExportPreview();
     updateButton();
 
     const formData = new FormData(form);
@@ -326,6 +333,7 @@ function renderReport(): void {
   teardownForecastMap();
 
   if (!state.reportResult) {
+    clearExportPreview();
     reportRoot.innerHTML = `
       <section class="panel empty-panel">
         <div class="empty-illustration"></div>
@@ -402,6 +410,17 @@ function renderReport(): void {
       ${renderPrecipitationChart(report)}
     </section>
 
+    <section class="panel export-preview-panel">
+      <div class="panel-head">
+        <div>
+          <p class="section-tag">Export</p>
+          <h2>Shareable image</h2>
+        </div>
+        <p class="section-copy">The inline preview matches the PNG downloaded from the export button.</p>
+      </div>
+      <div id="export-preview-content" class="export-preview-content"></div>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -421,7 +440,9 @@ function renderReport(): void {
     void handleExport();
   });
   renderExportState();
+  renderExportPreview();
   void mountForecastMap(report);
+  void ensureExportPreview(state.reportResult);
 }
 
 function metricCard(label: string, value: string, detail: string): string {
@@ -505,14 +526,16 @@ function renderExportState(): void {
   button.textContent = state.exporting ? "Rendering PNG..." : "Download report PNG";
   note.classList.toggle("export-note-error", Boolean(state.exportError));
   if (state.exporting) {
-    note.textContent = "Fetching map tiles and encoding the report image...";
+    note.textContent = "Rendering the inline preview and encoding the downloadable PNG...";
     return;
   }
   if (state.exportError) {
     note.textContent = state.exportError;
     return;
   }
-  note.textContent = "Downloads a square PNG with the map, charts, and route summary.";
+  note.textContent = state.exportPreviewUrl
+    ? "Preview below matches the square PNG download."
+    : "Preparing a square PNG preview with the map, charts, and route summary.";
 }
 
 async function handleExport(): Promise<void> {
@@ -520,18 +543,13 @@ async function handleExport(): Promise<void> {
     return;
   }
 
-  state.exporting = true;
-  state.exportError = "";
-  renderExportState();
+  const previewKey = buildExportPreviewKey(state.reportResult);
+  if (!state.exportPreviewUrl || state.exportPreviewKey !== previewKey) {
+    await ensureExportPreview(state.reportResult);
+  }
 
-  try {
-    const blob = await renderReportImageBlob(state.reportResult);
-    downloadBlob(blob, buildExportFileName(state.reportResult));
-  } catch (error) {
-    state.exportError = formatError(error);
-  } finally {
-    state.exporting = false;
-    renderExportState();
+  if (state.exportPreviewUrl && state.exportPreviewKey === previewKey) {
+    downloadUrl(state.exportPreviewUrl, buildExportFileName(state.reportResult));
   }
 }
 
@@ -587,15 +605,114 @@ function buildExportFileName(result: BuildForecastResult): string {
   return `${title || "forecast-report"}-${date}.png`;
 }
 
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
+function buildExportPreviewKey(result: BuildForecastResult): string {
+  const lastTimestamp = result.report.samples.at(-1)?.sample.timestampMs ?? result.report.endTimeMs;
+  return [
+    result.report.title,
+    result.report.startTimeMs,
+    lastTimestamp,
+    result.report.samples.length,
+    Math.round(result.report.route.totalDistanceM),
+  ].join("|");
+}
+
+async function ensureExportPreview(result: BuildForecastResult): Promise<void> {
+  const previewKey = buildExportPreviewKey(result);
+  if (state.exportPreviewKey === previewKey && (state.exportPreviewUrl || state.exporting)) {
+    return;
+  }
+
+  clearExportPreview();
+  state.exporting = true;
+  state.exportError = "";
+  state.exportPreviewKey = previewKey;
+  renderExportState();
+  renderExportPreview();
+
+  try {
+    const blob = await renderReportImageBlob(result);
+    const url = URL.createObjectURL(blob);
+    if (state.exportPreviewKey !== previewKey) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    state.exportPreviewUrl = url;
+  } catch (error) {
+    if (state.exportPreviewKey === previewKey) {
+      state.exportError = formatError(error);
+    }
+  } finally {
+    if (state.exportPreviewKey === previewKey) {
+      state.exporting = false;
+      renderExportState();
+      renderExportPreview();
+    }
+  }
+}
+
+function renderExportPreview(): void {
+  const content = document.querySelector<HTMLDivElement>("#export-preview-content");
+  if (!content || !state.reportResult) {
+    return;
+  }
+
+  if (state.exporting && !state.exportPreviewUrl) {
+    content.innerHTML = `
+      <div class="export-preview-placeholder">
+        <strong>Rendering report image…</strong>
+        <p>Fetching map tiles and drawing the export preview on-device.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.exportError) {
+    content.innerHTML = `
+      <div class="export-preview-placeholder export-preview-error">
+        <strong>Could not render the export image.</strong>
+        <p>${escapeHtml(state.exportError)}</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.exportPreviewUrl) {
+    content.innerHTML = `
+      <div class="export-preview-frame">
+        <img
+          class="export-preview-image"
+          src="${state.exportPreviewUrl}"
+          alt="Generated TrailIntel forecast report image preview"
+        />
+      </div>
+    `;
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="export-preview-placeholder">
+      <strong>Export preview pending.</strong>
+      <p>The shareable image will appear here once the renderer finishes.</p>
+    </div>
+  `;
+}
+
+function clearExportPreview(): void {
+  if (state.exportPreviewUrl) {
+    URL.revokeObjectURL(state.exportPreviewUrl);
+  }
+  state.exportPreviewUrl = "";
+  state.exportPreviewKey = "";
+  state.exporting = false;
+}
+
+function downloadUrl(url: string, fileName: string): void {
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
   document.body.append(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 async function registerServiceWorker(): Promise<void> {

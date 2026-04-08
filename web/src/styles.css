@@ -335,6 +335,58 @@ p {
   color: var(--error);
 }
 
+.export-preview-panel {
+  overflow: hidden;
+}
+
+.export-preview-content {
+  display: grid;
+  justify-items: center;
+}
+
+.export-preview-frame,
+.export-preview-placeholder {
+  width: min(100%, 860px);
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 24%),
+    linear-gradient(180deg, rgba(16, 20, 26, 0.92), rgba(6, 8, 12, 0.98));
+  box-shadow: var(--shadow);
+}
+
+.export-preview-frame {
+  overflow: hidden;
+}
+
+.export-preview-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.export-preview-placeholder {
+  display: grid;
+  gap: 10px;
+  min-height: 280px;
+  place-content: center;
+  padding: 28px;
+  text-align: center;
+  color: #f5efe7;
+}
+
+.export-preview-placeholder p {
+  max-width: 38ch;
+  color: rgba(245, 239, 231, 0.78);
+  line-height: 1.55;
+}
+
+.export-preview-error {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(78, 18, 18, 0.95), rgba(43, 11, 11, 0.98));
+}
+
 .metric-grid,
 .moment-grid,
 .sample-grid {
