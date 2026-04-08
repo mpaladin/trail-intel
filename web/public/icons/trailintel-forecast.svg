@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">TrailIntel Forecast</title>
+  <desc id="desc">A mountain route above a weather horizon.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f6b99" />
+      <stop offset="100%" stop-color="#07344b" />
+    </linearGradient>
+    <linearGradient id="ridge" x1="0%" x2="100%" y1="0%" y2="100%">
+      <stop offset="0%" stop-color="#f88a42" />
+      <stop offset="100%" stop-color="#b64416" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)" />
+  <path d="M0 380 L94 286 L162 334 L242 212 L320 286 L386 236 L512 356 L512 512 L0 512 Z" fill="#0d2430" />
+  <path d="M0 412 L108 326 L168 370 L252 258 L332 334 L406 288 L512 380 L512 512 L0 512 Z" fill="#102f3d" />
+  <path d="M104 334 C166 312 232 254 298 270 C356 284 408 314 450 340" fill="none" stroke="url(#ridge)" stroke-linecap="round" stroke-linejoin="round" stroke-width="28" />
+  <circle cx="388" cy="148" r="54" fill="#f6efe3" opacity="0.92" />
+  <path d="M112 172 H284" stroke="#d8eef8" stroke-linecap="round" stroke-width="24" />
+  <path d="M142 216 H332" stroke="#d8eef8" stroke-linecap="round" stroke-width="24" />
+  <path d="M188 260 H360" stroke="#d8eef8" stroke-linecap="round" stroke-width="24" />
+</svg>
