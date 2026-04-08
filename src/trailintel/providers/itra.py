@@ -108,7 +108,7 @@ class ItraClient:
                 continue
             try:
                 return float(raw)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
         return None
 
@@ -435,7 +435,7 @@ class ItraClient:
                 continue
             try:
                 score = float(score_raw)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
             if score <= threshold:
                 continue
