@@ -88,6 +88,26 @@ class ForecastCliTests(unittest.TestCase):
         self.assertIn("Saved image", result.output)
         self.assertIn("Saved site bundle", result.output)
 
+    def test_cli_requires_site_dir_for_compare_mode(self) -> None:
+        result = self.runner.invoke(
+            app,
+            [
+                "forecast",
+                str(FIXTURE),
+                "--start",
+                "2026-03-28T08:00:00+00:00",
+                "--duration",
+                "02:00",
+                "--output",
+                "out.png",
+                "--compare-provider",
+                "met-no",
+            ],
+        )
+
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("--site-dir is required", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()

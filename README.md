@@ -12,6 +12,7 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - a forecast PNG
 - a browsable static HTML forecast report
 - a GitHub issue driven publish workflow for GitHub Pages
+- a mobile-first PWA that runs forecast generation directly in the browser
 
 ## Features
 
@@ -33,6 +34,7 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 - Optional Git-backed athlete score repo cache (`--score-repo` or `TRAILINTEL_SCORE_REPO`)
 - Separate `trailintel-forecast` CLI for GPX weather reports
 - Static forecast bundles with `index.html`, `forecast.png`, `snapshot.json`, and `route.gpx`
+- Static `web/` PWA that imports GPX files, fetches Open-Meteo client-side, and renders an interactive report
 
 ## Install
 
@@ -71,6 +73,29 @@ ruff format --check .
 PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py'
 ```
 
+### Forecast PWA
+
+The repository now also includes a browser-first forecast app under `web/`.
+It is designed to be published as a static GitHub Pages PWA and keeps forecast
+generation on the user's device.
+
+Install and run it locally:
+
+```bash
+cd /Users/mpaladin/trailintel/web
+npm install
+npm run dev
+```
+
+Build and test the PWA bundle:
+
+```bash
+cd /Users/mpaladin/trailintel/web
+npm run typecheck
+npm run test
+npm run build
+```
+
 ## Usage
 
 ### Forecast CLI
@@ -106,6 +131,35 @@ trailintel-forecast forecast \
   --site-dir ./dist/forecast-site
 ```
 
+To switch the primary forecast source:
+
+```bash
+trailintel-forecast forecast \
+  ./route.gpx \
+  --start 2026-07-15T06:30 \
+  --timezone Europe/Rome \
+  --duration 03:30 \
+  --provider met-no \
+  --output ./dist/forecast.png
+```
+
+To compare multiple providers in the HTML bundle:
+
+```bash
+export WEATHERAPI_KEY=your-key
+
+trailintel-forecast forecast \
+  ./route.gpx \
+  --start 2026-07-15T06:30 \
+  --timezone Europe/Rome \
+  --duration 03:30 \
+  --provider open-meteo \
+  --compare-provider met-no \
+  --compare-provider weatherapi \
+  --output ./dist/forecast.png \
+  --site-dir ./dist/forecast-site
+```
+
 Forecast bundles contain:
 
 - `index.html`
@@ -117,9 +171,18 @@ Forecast bundles contain:
 The HTML forecast page includes:
 
 - route summary cards
+- provider comparison tables/cards when `--compare-provider` is used
 - the generated PNG chart
 - per-sample weather rows across the route
 - download links for PNG, GPX, and JSON
+
+The PWA forecast flow includes:
+
+- GPX file import from the browser
+- start date/time, timezone, duration, and sample interval inputs
+- interactive route overview and weather charts
+- a per-sample mobile breakdown of the route forecast
+- install-to-home-screen support with a basic offline shell cache
 
 ### 1) From race URL
 
@@ -305,3 +368,8 @@ Published Pages layout:
 - race reports: `/reports/<slug>/<timestamp>/` and `/reports/<slug>/latest/`
 - forecasts: `/forecasts/<slug>/<timestamp>/` and `/forecasts/<slug>/latest/`
 - root landing page: links to separate race and forecast indexes
+
+The PWA deploy workflow is separate from the legacy report-publishing workflows:
+
+- `.github/workflows/deploy-pwa.yml` builds `web/` and deploys it to GitHub Pages
+- `.github/workflows/generate-forecast-report.yml` continues to publish server-generated forecast bundles

@@ -4,10 +4,16 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Sequence
 
 import httpx
 
-from trailintel.forecast.engine import ForecastSummary, build_report, summarize_report
+from trailintel.forecast.engine import (
+    ForecastSummary,
+    build_reports,
+    summarize_report,
+)
+from trailintel.forecast.errors import InputValidationError
 from trailintel.forecast.models import ForecastReport
 from trailintel.forecast.render import render_report
 from trailintel.forecast.site import build_forecast_snapshot, export_forecast_site
@@ -20,6 +26,7 @@ class ForecastBundleResult:
     image_path: Path
     site_dir: Path | None
     snapshot: dict[str, object] | None
+    comparison_reports: tuple[ForecastReport, ...] = ()
 
 
 def _default_title(gpx_path: str | Path) -> str:
@@ -44,19 +51,32 @@ def generate_forecast_assets(
     timezone_name: str | None = None,
     sample_minutes: int = 10,
     http_client: httpx.Client | None = None,
+    provider: str = "open-meteo",
+    compare_providers: Sequence[str] = (),
+    weatherapi_key: str | None = None,
     now: datetime | None = None,
     generated_at: datetime | None = None,
 ) -> ForecastBundleResult:
+    if compare_providers and site_dir is None:
+        raise InputValidationError(
+            "--site-dir is required when using --compare-provider."
+        )
+
     resolved_title = resolve_forecast_title(gpx_path, title)
-    report = build_report(
+    reports = build_reports(
         gpx_path=gpx_path,
         start=start,
         duration=duration,
         timezone_name=timezone_name,
         sample_minutes=sample_minutes,
         http_client=http_client,
+        provider=provider,
+        compare_providers=compare_providers,
+        weatherapi_key=weatherapi_key,
         now=now,
     )
+    report = reports[0]
+    comparison_reports = tuple(reports[1:])
     image_path = render_report(report, output_path, title=resolved_title)
     summary = summarize_report(report)
 
@@ -67,6 +87,7 @@ def generate_forecast_assets(
             title=resolved_title,
             report=report,
             summary=summary,
+            comparison_reports=comparison_reports,
             generated_at=generated_at or datetime.now(UTC),
         )
         exported_site_dir = export_forecast_site(
@@ -82,4 +103,5 @@ def generate_forecast_assets(
         image_path=Path(image_path),
         site_dir=exported_site_dir,
         snapshot=snapshot,
+        comparison_reports=comparison_reports,
     )
