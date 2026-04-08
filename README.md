@@ -76,8 +76,9 @@ PYTHONPATH=src python -m unittest discover -s tests -p 'test_*.py'
 ### Forecast PWA
 
 The repository now also includes a browser-first forecast app under `web/`.
-It is designed to be published as a static GitHub Pages PWA and keeps forecast
-generation on the user's device.
+It is designed to be published as a static PWA under
+`https://mpaladin.com/forecast/` via the separate `mpaladin/website` Pages repo,
+while keeping forecast generation on the user's device.
 
 Install and run it locally:
 
@@ -371,5 +372,10 @@ Published Pages layout:
 
 The PWA deploy workflow is separate from the legacy report-publishing workflows:
 
-- `.github/workflows/deploy-pwa.yml` builds `web/` and deploys it to GitHub Pages
+- `.github/workflows/deploy-pwa.yml` builds `web/` and publishes it into `mpaladin/website` under `forecast/`
+- required config for the PWA deploy workflow:
+  - `WEBSITE_REPO`: target site repo, for example `mpaladin/website`
+  - `WEBSITE_BRANCH`: target branch, for example `gh-pages`
+  - `WEBSITE_REPO_TOKEN`: secret with push access to the target repo
+- the workflow only updates the `forecast/` subtree, so the root site and `CNAME` remain untouched
 - `.github/workflows/generate-forecast-report.yml` continues to publish server-generated forecast bundles
