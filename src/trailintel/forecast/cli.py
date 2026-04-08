@@ -6,6 +6,7 @@ import typer
 
 from trailintel.forecast.bundle import generate_forecast_assets
 from trailintel.forecast.errors import EpicForecastError
+from trailintel.forecast.weather import available_provider_ids
 
 app = typer.Typer(
     help="Generate route weather forecast charts from GPX rides.",
@@ -42,6 +43,20 @@ def forecast(
         "--site-dir",
         help="Optional static site bundle output directory.",
     ),
+    provider: str = typer.Option(
+        "open-meteo",
+        "--provider",
+        help=(
+            "Primary forecast provider. Choices: "
+            + ", ".join(available_provider_ids())
+            + "."
+        ),
+    ),
+    compare_provider: list[str] = typer.Option(
+        [],
+        "--compare-provider",
+        help="Additional provider(s) to compare in the HTML bundle.",
+    ),
 ) -> None:
     try:
         result = generate_forecast_assets(
@@ -52,11 +67,19 @@ def forecast(
             sample_minutes=sample_minutes,
             output_path=output,
             site_dir=site_dir,
+            provider=provider,
+            compare_providers=compare_provider,
         )
         summary = result.summary
     except EpicForecastError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+    chance_text = (
+        f"{summary.wettest_probability_pct:.0f}% chance"
+        if summary.wettest_probability_pct is not None
+        else "chance unavailable"
+    )
 
     typer.echo(
         "\n".join(
@@ -68,8 +91,7 @@ def forecast(
                 (
                     "Wettest segment: "
                     f"{summary.wettest_time.isoformat()} "
-                    f"({summary.wettest_precipitation_mm:.1f} mm, "
-                    f"{summary.wettest_probability_pct:.0f}% chance)"
+                    f"({summary.wettest_precipitation_mm:.1f} mm, {chance_text})"
                 ),
                 f"Saved image: {result.image_path}",
                 (

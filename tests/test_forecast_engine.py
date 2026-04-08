@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from trailintel.forecast.engine import build_report as build_route_report
 from trailintel.forecast.engine import summarize_report
+from trailintel.forecast.errors import InputValidationError
 from trailintel.forecast.models import (
     Bounds,
     ForecastReport,
@@ -12,6 +15,8 @@ from trailintel.forecast.models import (
     SampleForecast,
     SamplePoint,
 )
+
+FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
 
 
 def make_sample(
@@ -61,6 +66,7 @@ def build_report(samples: list[SampleForecast]) -> ForecastReport:
         bounds=Bounds(min_lat=47.0, max_lat=47.03, min_lon=8.0, max_lon=8.03),
     )
     return ForecastReport(
+        provider_id="open-meteo",
         route=route,
         samples=samples,
         start_time=start,
@@ -144,6 +150,27 @@ class ForecastEngineTests(unittest.TestCase):
         self.assertEqual(summary.wettest_time, report.samples[0].sample.timestamp)
         self.assertEqual(summary.wettest_precipitation_mm, 0.4)
         self.assertEqual(summary.wettest_probability_pct, 60.0)
+
+    def test_build_report_uses_provider_horizon_for_weatherapi(self) -> None:
+        with self.assertRaises(InputValidationError):
+            build_route_report(
+                gpx_path=FIXTURE,
+                start="2026-03-31T08:00:00+00:00",
+                duration="02:00",
+                provider="weatherapi",
+                weatherapi_key="test-key",
+                now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+            )
+
+    def test_build_report_requires_weatherapi_key_before_network(self) -> None:
+        with self.assertRaisesRegex(InputValidationError, "WEATHERAPI_KEY"):
+            build_route_report(
+                gpx_path=FIXTURE,
+                start="2026-03-28T08:00:00+00:00",
+                duration="02:00",
+                provider="weatherapi",
+                now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+            )
 
 
 if __name__ == "__main__":

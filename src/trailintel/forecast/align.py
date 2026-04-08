@@ -35,7 +35,7 @@ def align_forecasts(
                     forecast.temperature_c[next_index],
                     ratio,
                 ),
-                apparent_temperature_c=lerp(
+                apparent_temperature_c=lerp_optional(
                     forecast.apparent_temperature_c[hour_index],
                     forecast.apparent_temperature_c[next_index],
                     ratio,
@@ -45,7 +45,7 @@ def align_forecasts(
                     forecast.wind_kph[next_index],
                     ratio,
                 ),
-                wind_gust_kph=lerp(
+                wind_gust_kph=lerp_optional(
                     forecast.wind_gust_kph[hour_index],
                     forecast.wind_gust_kph[next_index],
                     ratio,
@@ -86,6 +86,20 @@ def containing_hour_index(times: list, timestamp) -> int:
 
 def lerp(start: float, end: float, ratio: float) -> float:
     return start + (end - start) * float(ratio)
+
+
+def lerp_optional(
+    start: float | None,
+    end: float | None,
+    ratio: float,
+) -> float | None:
+    if ratio <= 0:
+        return start
+    if ratio >= 1:
+        return end
+    if start is None or end is None:
+        return None
+    return lerp(start, end, ratio)
 
 
 def circular_lerp(start: float, end: float, ratio: float) -> float:
