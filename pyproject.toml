@@ -7,7 +7,7 @@ name = "trailintel"
 version = "0.1.0"
 description = "TrailIntel: trail race participant enrichment with UTMB index and ITRA score."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
   "requests>=2.32.0",
   "beautifulsoup4>=4.12.0",
@@ -35,7 +35,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

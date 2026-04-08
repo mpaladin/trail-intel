@@ -130,7 +130,7 @@ class BetrailClient:
             return None
         try:
             score = float(level_raw) / 100.0
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
 
         return BetrailCatalogEntry(

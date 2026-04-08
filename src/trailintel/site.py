@@ -125,7 +125,7 @@ def _format_threshold_label(value: object) -> str:
         return "Not set"
     try:
         number = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(value)
     if number.is_integer():
         return str(int(number))
@@ -1292,7 +1292,7 @@ def _sorted_section_entries(
             continue
         try:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             continue
         if not isinstance(payload, dict):
             continue
@@ -1853,7 +1853,7 @@ def copy_bundle_to_targets(
                 loaded = json.loads(meta_path.read_text(encoding="utf-8"))
                 if isinstance(loaded, dict):
                     existing = loaded
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 existing = {}
         combined = {**existing, **published_metadata}
         relative_dir = target.relative_to(root).as_posix()

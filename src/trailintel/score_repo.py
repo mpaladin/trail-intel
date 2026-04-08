@@ -82,7 +82,7 @@ def default_score_repo_path(config_path: Path | None = None) -> Path | None:
         return None
     try:
         parsed = tomllib.loads(path.read_text(encoding="utf-8"))
-    except OSError, tomllib.TOMLDecodeError:
+    except (OSError, tomllib.TOMLDecodeError):
         return None
     if not isinstance(parsed, dict):
         return None
@@ -162,7 +162,7 @@ def _as_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
