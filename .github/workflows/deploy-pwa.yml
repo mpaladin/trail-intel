@@ -1,4 +1,4 @@
-name: Deploy Forecast PWA
+name: Publish Forecast PWA to Website
 
 on:
   push:
@@ -11,16 +11,18 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: deploy-pwa
   cancel-in-progress: true
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    env:
+      WEBSITE_REPO: ${{ vars.WEBSITE_REPO }}
+      WEBSITE_BRANCH: ${{ vars.WEBSITE_BRANCH }}
+      DEPLOY_SUBDIR: forecast
     steps:
       - uses: actions/checkout@v6
 
@@ -34,22 +36,55 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: Typecheck web app
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Run web unit tests
+        working-directory: web
+        run: npm run test
+
       - name: Build static bundle
         working-directory: web
         run: npm run build
 
-      - uses: actions/configure-pages@v5
+      - name: Validate website publish configuration
+        env:
+          WEBSITE_REPO_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
+        run: |
+          if [ -z "$WEBSITE_REPO" ]; then
+            echo "Missing repo variable WEBSITE_REPO (owner/repo)." >&2
+            exit 1
+          fi
+          if [ -z "$WEBSITE_REPO_TOKEN" ]; then
+            echo "Missing secret WEBSITE_REPO_TOKEN." >&2
+            exit 1
+          fi
 
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: web/dist
+      - name: Clone website repository
+        env:
+          WEBSITE_REPO_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
+        run: |
+          branch="${WEBSITE_BRANCH:-gh-pages}"
+          git clone --depth 1 --branch "$branch" "https://x-access-token:${WEBSITE_REPO_TOKEN}@github.com/${WEBSITE_REPO}.git" website-repo
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Copy PWA bundle into website subtree
+        run: |
+          target="website-repo/${DEPLOY_SUBDIR}"
+          rm -rf "$target"
+          mkdir -p "$target"
+          cp -R web/dist/. "$target"/
+
+      - name: Commit and push website update
+        run: |
+          branch="${WEBSITE_BRANCH:-gh-pages}"
+          cd website-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all "${DEPLOY_SUBDIR}"
+          if git diff --cached --quiet; then
+            echo "No website changes to commit."
+            exit 0
+          fi
+          git commit -m "Publish TrailIntel Forecast PWA"
+          git push origin "$branch"
