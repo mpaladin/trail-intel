@@ -12,7 +12,7 @@ interface LineSeries {
   dashed?: boolean;
 }
 
-export function renderRouteOverview(report: ForecastReport): string {
+export function renderRouteOverviewFallback(report: ForecastReport): string {
   const width = 620;
   const height = 320;
   const pad = 28;
@@ -77,6 +77,10 @@ export function renderRouteOverview(report: ForecastReport): string {
       <circle cx="${finishX.toFixed(1)}" cy="${finishY.toFixed(1)}" r="10" fill="#cf4b2b" stroke="#ffffff" stroke-width="4" />
     </svg>
   `;
+}
+
+export function renderRouteOverview(report: ForecastReport): string {
+  return renderRouteOverviewFallback(report);
 }
 
 export function renderTemperatureChart(report: ForecastReport): string {

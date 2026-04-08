@@ -1,4 +1,5 @@
 import "./styles.css";
+import "leaflet/dist/leaflet.css";
 
 import { buildForecastReport } from "./lib/forecast/engine";
 import {
@@ -13,7 +14,9 @@ import {
 } from "./lib/forecast/format";
 import { ForecastInputError, WeatherApiError } from "./lib/forecast/errors";
 import type { BuildForecastResult, ForecastKeyMoment, SampleForecast } from "./lib/forecast/types";
-import { renderPrecipitationChart, renderRouteOverview, renderTemperatureChart, renderWindChart } from "./ui/charts";
+import { renderReportImageBlob } from "./lib/export/reportImage";
+import { renderPrecipitationChart, renderTemperatureChart, renderWindChart } from "./ui/charts";
+import { mountForecastMap, renderForecastMapCard, teardownForecastMap } from "./ui/forecastMap";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -25,7 +28,9 @@ interface AppState {
   gpxText: string;
   reportResult: BuildForecastResult | null;
   loading: boolean;
+  exporting: boolean;
   error: string;
+  exportError: string;
   installPrompt: BeforeInstallPromptEvent | null;
   installDismissed: boolean;
 }
@@ -41,7 +46,9 @@ const state: AppState = {
   gpxText: "",
   reportResult: null,
   loading: false,
+  exporting: false,
   error: "",
+  exportError: "",
   installPrompt: null,
   installDismissed: false,
 };
@@ -178,6 +185,7 @@ function setupForm(): void {
 
     state.loading = true;
     state.error = "";
+    state.exportError = "";
     renderStatus();
     updateButton();
 
@@ -196,6 +204,7 @@ function setupForm(): void {
       state.error = formatError(error);
     } finally {
       state.loading = false;
+      state.exporting = false;
       renderStatus();
       renderReport();
       updateButton();
@@ -314,6 +323,8 @@ function renderReport(): void {
     return;
   }
 
+  teardownForecastMap();
+
   if (!state.reportResult) {
     reportRoot.innerHTML = `
       <section class="panel empty-panel">
@@ -334,21 +345,31 @@ function renderReport(): void {
   const { report, summary, keyMoments } = state.reportResult;
   reportRoot.innerHTML = `
     <section class="panel report-hero">
-      <div class="panel-head">
-        <div>
+      <div class="panel-head report-head">
+        <div class="report-head-copy">
           <p class="section-tag">Forecast Report</p>
           <h2>${escapeHtml(report.title)}</h2>
+          <p class="section-copy">
+            ${escapeHtml(formatFullDateTime(report.startTimeMs, report.timezoneName))} to
+            ${escapeHtml(formatFullDateTime(report.endTimeMs, report.timezoneName))}.
+          </p>
         </div>
-        <div class="meta-pill-row">
-          <span class="pill">${escapeHtml(report.sourceLabel)}</span>
-          <span class="pill">${escapeHtml(report.providerId)}</span>
-          <span class="pill">${escapeHtml(report.timezoneName)}</span>
+        <div class="report-head-side">
+          <div class="meta-pill-row">
+            <span class="pill">${escapeHtml(report.sourceLabel)}</span>
+            <span class="pill">${escapeHtml(report.providerId)}</span>
+            <span class="pill">${escapeHtml(report.timezoneName)}</span>
+          </div>
+          <div class="report-actions">
+            <button id="download-report-button" class="secondary-button" type="button">
+              Download report PNG
+            </button>
+            <p id="export-note" class="export-note">
+              Downloads a square PNG with the map, charts, and route summary.
+            </p>
+          </div>
         </div>
       </div>
-      <p class="section-copy">
-        ${escapeHtml(formatFullDateTime(report.startTimeMs, report.timezoneName))} to
-        ${escapeHtml(formatFullDateTime(report.endTimeMs, report.timezoneName))}.
-      </p>
       <div class="metric-grid">
         ${metricCard("Distance", formatDistanceKm(report.route.totalDistanceM), "Total sampled route length")}
         ${metricCard("Ascent", `${formatNumber(report.route.totalAscentM, 0)} m`, "Cumulative positive elevation")}
@@ -360,16 +381,7 @@ function renderReport(): void {
     </section>
 
     <div class="two-up-grid">
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="section-tag">Route</p>
-            <h2>Overview</h2>
-          </div>
-          <p class="section-copy">${escapeHtml(formatDistanceKm(report.route.totalDistanceM))} with ${escapeHtml(formatNumber(report.route.totalAscentM, 0))} m ascent.</p>
-        </div>
-        ${renderRouteOverview(report)}
-      </section>
+      ${renderForecastMapCard(report)}
       <section class="panel">
         <div class="panel-head">
           <div>
@@ -403,6 +415,13 @@ function renderReport(): void {
       </div>
     </section>
   `;
+
+  const exportButton = document.querySelector<HTMLButtonElement>("#download-report-button");
+  exportButton?.addEventListener("click", () => {
+    void handleExport();
+  });
+  renderExportState();
+  void mountForecastMap(report);
 }
 
 function metricCard(label: string, value: string, detail: string): string {
@@ -475,6 +494,47 @@ function updateButton(): void {
   button.textContent = state.loading ? "Generating..." : "Generate forecast";
 }
 
+function renderExportState(): void {
+  const button = document.querySelector<HTMLButtonElement>("#download-report-button");
+  const note = document.querySelector<HTMLParagraphElement>("#export-note");
+  if (!button || !note || !state.reportResult) {
+    return;
+  }
+
+  button.disabled = state.exporting;
+  button.textContent = state.exporting ? "Rendering PNG..." : "Download report PNG";
+  note.classList.toggle("export-note-error", Boolean(state.exportError));
+  if (state.exporting) {
+    note.textContent = "Fetching map tiles and encoding the report image...";
+    return;
+  }
+  if (state.exportError) {
+    note.textContent = state.exportError;
+    return;
+  }
+  note.textContent = "Downloads a square PNG with the map, charts, and route summary.";
+}
+
+async function handleExport(): Promise<void> {
+  if (!state.reportResult || state.exporting) {
+    return;
+  }
+
+  state.exporting = true;
+  state.exportError = "";
+  renderExportState();
+
+  try {
+    const blob = await renderReportImageBlob(state.reportResult);
+    downloadBlob(blob, buildExportFileName(state.reportResult));
+  } catch (error) {
+    state.exportError = formatError(error);
+  } finally {
+    state.exporting = false;
+    renderExportState();
+  }
+}
+
 function listTimezones(): string[] {
   const supportedValuesOf = (
     Intl as typeof globalThis.Intl & {
@@ -516,6 +576,26 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function buildExportFileName(result: BuildForecastResult): string {
+  const title = safeFileStem(result.report.title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const date = new Date(result.report.startTimeMs).toISOString().slice(0, 10);
+  return `${title || "forecast-report"}-${date}.png`;
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 async function registerServiceWorker(): Promise<void> {

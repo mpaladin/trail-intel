@@ -300,6 +300,41 @@ p {
   margin-top: 4px;
 }
 
+.report-head {
+  align-items: flex-start;
+}
+
+.report-head-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.report-head-side,
+.report-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.report-head-side {
+  justify-items: end;
+}
+
+.report-actions {
+  justify-items: end;
+}
+
+.export-note {
+  max-width: 30ch;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.export-note-error {
+  color: var(--error);
+}
+
 .metric-grid,
 .moment-grid,
 .sample-grid {
@@ -354,10 +389,84 @@ p {
   margin-top: 18px;
 }
 
+.map-stage {
+  display: grid;
+  overflow: hidden;
+  min-height: 360px;
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.82), transparent 30%),
+    linear-gradient(160deg, rgba(14, 91, 133, 0.14), rgba(242, 104, 42, 0.12));
+}
+
+.map-stage > * {
+  grid-area: 1 / 1;
+}
+
+.interactive-map,
+.map-fallback {
+  width: 100%;
+  min-height: 360px;
+}
+
+.interactive-map[hidden],
+.map-fallback[hidden] {
+  display: none !important;
+}
+
+.interactive-map {
+  background: #e1e8e2;
+}
+
+.map-fallback {
+  padding: 10px;
+}
+
 .route-map {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
+}
+
+.map-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.wind-arrow-marker {
+  background: transparent;
+  border: 0;
+}
+
+.wind-arrow-marker span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: #122935;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 10px rgba(255, 255, 255, 0.45);
+}
+
+.leaflet-container {
+  font-family: var(--body-font);
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(8px);
+}
+
+.leaflet-control-attribution a {
+  color: var(--accent-strong);
 }
 
 .chart-grid {
@@ -506,6 +615,15 @@ p {
 
   .hero-copy h1 {
     max-width: none;
+  }
+
+  .report-head-side,
+  .report-actions {
+    justify-items: start;
+  }
+
+  .export-note {
+    text-align: left;
   }
 
   .sample-list {
