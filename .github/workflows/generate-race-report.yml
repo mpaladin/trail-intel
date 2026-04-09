@@ -1,6 +1,8 @@
 name: Generate Race Report
 
 on:
+  issues:
+    types: [opened, edited, reopened]
   workflow_dispatch:
     inputs:
       race_name:
@@ -36,11 +38,14 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   prepare:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(join(github.event.issue.labels.*.name, ','), 'report-request') }}
     runs-on: ubuntu-latest
     outputs:
+      authorized: ${{ steps.auth.outputs.authorized }}
       request_json: ${{ steps.request.outputs.request_json }}
       race_slug: ${{ steps.request.outputs.race_slug }}
       race_name: ${{ steps.request.outputs.race_name }}
@@ -51,8 +56,30 @@ jobs:
         with:
           python-version: "3.13"
 
-      - id: request
+      - id: auth
         env:
+          REQUESTER: ${{ github.actor }}
+          ALLOWED_REQUESTERS: ${{ vars.ALLOWED_REQUESTERS }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          python - <<'PY'
+          import os
+
+          requester = os.environ["REQUESTER"].strip()
+          allowed_raw = os.getenv("ALLOWED_REQUESTERS", "").strip()
+          allowed = {item.strip() for item in allowed_raw.split(",") if item.strip()}
+          if not allowed:
+              allowed = {os.getenv("REPO_OWNER", "").strip()}
+          authorized = requester in allowed
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"authorized={'true' if authorized else 'false'}\n")
+          PY
+
+      - id: request
+        if: steps.auth.outputs.authorized == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
           INPUT_RACE_NAME: ${{ inputs.race_name }}
           INPUT_RACE_URL: ${{ inputs.race_url }}
           INPUT_COMPETITION_NAME: ${{ inputs.competition_name }}
@@ -70,29 +97,41 @@ jobs:
               DEFAULT_STRATEGY,
               DEFAULT_TOP,
               ReportRequest,
+              parse_issue_form,
               validate_public_https_url,
           )
 
-          race_name = os.getenv("INPUT_RACE_NAME", "").strip()
-          if not race_name:
-              raise ValueError("Race name is required.")
+          if os.environ["EVENT_NAME"] == "issues":
+              request = parse_issue_form(os.getenv("ISSUE_BODY", ""))
+              request = ReportRequest(
+                  race_name=request.race_name,
+                  race_url=validate_public_https_url(request.race_url, label="Race URL"),
+                  competition_name=request.competition_name,
+                  score_threshold=request.score_threshold,
+                  top=request.top,
+                  strategy=request.strategy,
+              )
+          else:
+              race_name = os.getenv("INPUT_RACE_NAME", "").strip()
+              if not race_name:
+                  raise ValueError("Race name is required.")
 
-          strategy = (os.getenv("INPUT_STRATEGY") or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
-          if strategy not in {"participant-first", "catalog-first"}:
-              raise ValueError(f"Unsupported strategy: {strategy}")
+              strategy = (os.getenv("INPUT_STRATEGY") or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
+              if strategy not in {"participant-first", "catalog-first"}:
+                  raise ValueError(f"Unsupported strategy: {strategy}")
 
-          race_url = validate_public_https_url(
-              os.getenv("INPUT_RACE_URL", "").strip(),
-              label="Race URL",
-          )
-          request = ReportRequest(
-              race_name=race_name,
-              race_url=race_url,
-              competition_name=os.getenv("INPUT_COMPETITION_NAME", "").strip(),
-              score_threshold=float(os.getenv("INPUT_SCORE_THRESHOLD") or DEFAULT_SCORE_THRESHOLD),
-              top=int(os.getenv("INPUT_TOP") or DEFAULT_TOP),
-              strategy=strategy,
-          )
+              request = ReportRequest(
+                  race_name=race_name,
+                  race_url=validate_public_https_url(
+                      os.getenv("INPUT_RACE_URL", "").strip(),
+                      label="Race URL",
+                  ),
+                  competition_name=os.getenv("INPUT_COMPETITION_NAME", "").strip(),
+                  score_threshold=float(os.getenv("INPUT_SCORE_THRESHOLD") or DEFAULT_SCORE_THRESHOLD),
+                  top=int(os.getenv("INPUT_TOP") or DEFAULT_TOP),
+                  strategy=strategy,
+              )
+
           payload = asdict(request)
           payload["race_slug"] = request.race_slug
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
@@ -103,9 +142,30 @@ jobs:
               handle.write(f"race_name={payload['race_name']}\n")
           PY
 
-  run_report:
+  deny_request:
+    if: ${{ needs.prepare.outputs.authorized == 'false' && github.event_name == 'issues' }}
     needs: prepare
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "This repository accepts report requests only from the allowlisted GitHub accounts in `ALLOWED_REQUESTERS`.",
+            });
+
+  run_report:
+    if: ${{ needs.prepare.outputs.authorized == 'true' }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     env:
       REQUEST_JSON: ${{ needs.prepare.outputs.request_json }}
       PAGES_REPO: ${{ vars.PAGES_REPO }}
@@ -115,6 +175,8 @@ jobs:
       SCORE_REPO_BRANCH: ${{ vars.SCORE_REPO_BRANCH }}
       SCORE_REPO_TOKEN: ${{ secrets.SCORE_REPO_TOKEN }}
       TRAILINTEL_SCORE_REPO: ${{ github.workspace }}/score-repo
+    outputs:
+      publish_json: ${{ steps.publish.outputs.publish_json }}
     steps:
       - uses: actions/checkout@v6
 
@@ -286,3 +348,50 @@ jobs:
           fi
           git commit -m "Publish report: ${{ needs.prepare.outputs.race_name }}"
           git push origin "$branch"
+
+      - name: Comment success on issue
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v8
+        env:
+          PUBLISH_JSON: ${{ steps.publish.outputs.publish_json }}
+        with:
+          script: |
+            const publish = JSON.parse(process.env.PUBLISH_JSON);
+            const body = [
+              "Report published successfully.",
+              "",
+              `- Latest report: ${publish.latest_url}`,
+              `- This run: ${publish.report_url}`,
+              `- CSV: ${publish.csv_url}`,
+              `- JSON: ${publish.json_url}`,
+              `- Workflow artifacts: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: "closed",
+            });
+
+  comment_failure:
+    if: ${{ always() && needs.prepare.outputs.authorized == 'true' && needs.run_report.result == 'failure' && github.event_name == 'issues' }}
+    needs: [prepare, run_report]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Report generation failed. Check the workflow logs for run ${context.runId}: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });

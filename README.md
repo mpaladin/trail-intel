@@ -333,15 +333,18 @@ When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
 
 ## GitHub Actions + Pages
 
-The repo includes maintainer-run publishing workflows:
+The repo includes both allowlisted issue-driven publishing and manual dispatch workflows:
 
+- `.github/ISSUE_TEMPLATE/generate-race-report.yml`
 - `.github/workflows/generate-race-report.yml`
+- `.github/ISSUE_TEMPLATE/generate-forecast-report.yml`
 - `.github/workflows/generate-forecast-report.yml`
 
 Recommended setup:
 
 1. Create a separate public repository for GitHub Pages output.
 2. Set these repository variables in this repo:
+   - `ALLOWED_REQUESTERS`: comma-separated GitHub logins allowed to request runs from issues
    - `PAGES_REPO`: `owner/public-pages-repo`
    - `PAGES_BRANCH`: optional, defaults to `main`
    - `PAGES_BASE_URL`: optional, defaults to `https://owner.github.io/repo`
@@ -354,9 +357,9 @@ Recommended setup:
 
 Race report flow:
 
-1. Open GitHub Actions and run `.github/workflows/generate-race-report.yml`.
+1. Open the `Generate race report` issue form or run `.github/workflows/generate-race-report.yml` manually.
 2. Fill in race name, race URL, optional competition, threshold, top rows, and strategy.
-3. The workflow validates the URL, runs the CLI, uploads the artifact bundle, and publishes it to the public Pages repo.
+3. The workflow validates the requester for issue-based runs, validates the URL, runs the CLI, uploads the artifact bundle, publishes it to the public Pages repo, and comments back on the issue when applicable.
 
 During the same run, the workflow also clones the score repo checkout into
 `$GITHUB_WORKSPACE/score-repo`, passes it to `trailintel --score-repo`, and
@@ -364,9 +367,11 @@ commits/pushes refreshed athlete snapshots when the report adds or updates cache
 
 Forecast flow:
 
-1. Open GitHub Actions and run `.github/workflows/generate-forecast-report.yml`.
-2. Fill in route name, start date, start time, timezone, duration, and a direct public `https` GPX or ZIP URL.
-3. The workflow validates the URL, downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, and publishes it to the public Pages repo.
+1. Open the `Generate forecast report` issue form or run `.github/workflows/generate-forecast-report.yml` manually.
+2. Fill in route name, start date, start time, timezone, duration, and either:
+   - a direct public `https` GPX or ZIP URL in `GPX URL`, or
+   - one ZIP attachment containing exactly one GPX in `Notes`
+3. The workflow validates the requester for issue-based runs, validates the URL, downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, and comments back on the issue when applicable.
 4. Workflow URLs must use `https` and must not resolve to localhost, loopback, link-local, or private-network addresses.
 
 Published Pages layout:

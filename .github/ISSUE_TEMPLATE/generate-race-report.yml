@@ -1,0 +1,54 @@
+name: Generate race report
+description: Request a new static race report build for GitHub Pages
+title: "[report] "
+labels: ["report-request"]
+body:
+  - type: input
+    id: race_name
+    attributes:
+      label: Race Name
+      description: Friendly report title shown on the published page.
+      placeholder: Trail du Sanglier 2026 - Le 40 km
+    validations:
+      required: true
+  - type: input
+    id: race_url
+    attributes:
+      label: Race URL
+      description: Participant list page or direct participant source URL.
+      placeholder: https://example.com/participants
+    validations:
+      required: true
+  - type: input
+    id: competition_name
+    attributes:
+      label: Competition / Distance
+      description: Optional distance filter for multi-race pages.
+      placeholder: Le 40 km
+  - type: input
+    id: score_threshold
+    attributes:
+      label: Score Threshold
+      description: Only athletes strictly above this score appear in the top table.
+      value: "680"
+    validations:
+      required: true
+  - type: input
+    id: top
+    attributes:
+      label: Top
+      description: Maximum number of top athletes shown in the published table.
+      value: "100"
+    validations:
+      required: true
+  - type: dropdown
+    id: strategy
+    attributes:
+      label: Strategy
+      description: Report generation strategy.
+      options:
+        - participant-first
+        - catalog-first
+      default: 0
+    validations:
+      required: true
