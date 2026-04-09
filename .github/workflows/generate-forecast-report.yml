@@ -198,6 +198,9 @@ jobs:
     if: ${{ needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error == '' }}
     needs: prepare
     runs-on: ubuntu-latest
+    concurrency:
+      group: trailintel-report-publish
+      cancel-in-progress: false
     permissions:
       contents: read
       issues: write
