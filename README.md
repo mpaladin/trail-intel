@@ -11,8 +11,10 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 
 - a forecast PNG
 - a browsable static HTML forecast report
-- a GitHub issue driven publish workflow for GitHub Pages
+- maintainer-run GitHub Actions publish workflows for GitHub Pages
 - a mobile-first PWA that runs forecast generation directly in the browser
+
+TrailIntel is available under the MIT License.
 
 ## Features
 
@@ -39,7 +41,7 @@ It also includes a route-forecast pipeline that turns a GPX + start time into:
 ## Install
 
 ```bash
-cd /Users/mpaladin/trailintel
+cd /path/to/trailintel
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -83,7 +85,7 @@ while keeping forecast generation on the user's device.
 Install and run it locally:
 
 ```bash
-cd /Users/mpaladin/trailintel/web
+cd /path/to/trailintel/web
 npm install
 npm run dev
 ```
@@ -91,7 +93,7 @@ npm run dev
 Build and test the PWA bundle:
 
 ```bash
-cd /Users/mpaladin/trailintel/web
+cd /path/to/trailintel/web
 npm run typecheck
 npm run test
 npm run build
@@ -294,7 +296,7 @@ The HTML page mirrors the main report view with:
 
 ```toml
 [score_repo]
-path = "/Users/mpaladin/trail-intel-score"
+path = "/path/to/trail-intel-score"
 ```
 
 ```bash
@@ -322,47 +324,50 @@ When `--score-repo` (or `TRAILINTEL_SCORE_REPO`) points at a local checkout of
   snapshot is reused and noted in the report.
 - If repeated ITRA failures continue, rely on anonymous ITRA mode plus overrides.
 
+## Third-Party Services
+
+- TrailIntel depends on third-party services and datasets including UTMB, ITRA, Betrail, Open-Meteo, MET Norway, WeatherAPI.com, OpenStreetMap, and CARTO.
+- Those providers may change APIs, rate-limit requests, block automated access, or alter response formats without notice.
+- You are responsible for complying with each provider's terms, attribution requirements, and acceptable-use policies when running the CLI or the GitHub Actions workflows.
+- Forecast map views and exported map imagery keep the OpenStreetMap and CARTO attribution used by the app, and WeatherAPI.com still requires a valid `WEATHERAPI_KEY`.
+
 ## GitHub Actions + Pages
 
-The repo now includes a serverless publishing path:
+The repo includes maintainer-run publishing workflows:
 
-- `.github/ISSUE_TEMPLATE/generate-race-report.yml`
 - `.github/workflows/generate-race-report.yml`
-- `.github/ISSUE_TEMPLATE/generate-forecast-report.yml`
 - `.github/workflows/generate-forecast-report.yml`
 
 Recommended setup:
 
-1. Keep this repository private as the control repo.
-2. Create a separate public repository for GitHub Pages output.
-3. Set these repository variables in the control repo:
-   - `ALLOWED_REQUESTERS`: comma-separated GitHub logins allowed to request runs
+1. Create a separate public repository for GitHub Pages output.
+2. Set these repository variables in this repo:
    - `PAGES_REPO`: `owner/public-pages-repo`
    - `PAGES_BRANCH`: optional, defaults to `main`
    - `PAGES_BASE_URL`: optional, defaults to `https://owner.github.io/repo`
    - `SCORE_REPO`: optional, defaults to `mpaladin/trail-intel-score`
    - `SCORE_REPO_BRANCH`: optional, defaults to `main`
-4. Set this repository secret in the control repo:
+3. Set these repository secrets:
    - `PAGES_REPO_TOKEN`: token with push access to the public Pages repo
    - `SCORE_REPO_TOKEN`: optional token with push access to the score repo
      (falls back to `PAGES_REPO_TOKEN` if that token can access both repos)
-Request flow:
 
-1. Open the `Generate race report` issue form from your phone or browser.
+Race report flow:
+
+1. Open GitHub Actions and run `.github/workflows/generate-race-report.yml`.
 2. Fill in race name, race URL, optional competition, threshold, top rows, and strategy.
-3. The workflow validates the requester, runs the CLI, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
+3. The workflow validates the URL, runs the CLI, uploads the artifact bundle, and publishes it to the public Pages repo.
 
 During the same run, the workflow also clones the score repo checkout into
 `$GITHUB_WORKSPACE/score-repo`, passes it to `trailintel --score-repo`, and
 commits/pushes refreshed athlete snapshots when the report adds or updates cache entries.
 
-Forecast request flow:
+Forecast flow:
 
-1. Open the `Generate forecast report` issue form.
-2. Fill in route name, start date, start time, timezone, duration, and either:
-   - a direct GPX/ZIP URL in `GPX URL`, or
-   - one ZIP attachment containing exactly one GPX in `Notes`
-3. The workflow downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, comments with the published links, and closes the issue.
+1. Open GitHub Actions and run `.github/workflows/generate-forecast-report.yml`.
+2. Fill in route name, start date, start time, timezone, duration, and a direct public `https` GPX or ZIP URL.
+3. The workflow validates the URL, downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, and publishes it to the public Pages repo.
+4. Workflow URLs must use `https` and must not resolve to localhost, loopback, link-local, or private-network addresses.
 
 Published Pages layout:
 
@@ -370,7 +375,7 @@ Published Pages layout:
 - forecasts: `/forecasts/<slug>/<timestamp>/` and `/forecasts/<slug>/latest/`
 - root landing page: links to separate race and forecast indexes
 
-The PWA deploy workflow is separate from the legacy report-publishing workflows:
+The PWA deploy workflow is separate from the report-publishing workflows and is intended for maintainers with the required repository secrets:
 
 - `.github/workflows/deploy-pwa.yml` builds `web/` and publishes it into `mpaladin/website` under `forecast/`
 - required config for the PWA deploy workflow:

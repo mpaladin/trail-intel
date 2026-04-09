@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from trailintel.github_pipeline import (
     ReportRequest,
@@ -11,12 +12,47 @@ from trailintel.github_pipeline import (
     build_publish_paths,
     parse_issue_form,
     publish_report_bundle,
+    validate_public_https_url,
 )
 from trailintel.models import AthleteRecord
 from trailintel.site import build_report_snapshot, export_report_site
 
 
 class GitHubPipelineTests(unittest.TestCase):
+    @patch("trailintel.github_pipeline.socket.getaddrinfo")
+    def test_validate_public_https_url_accepts_public_https(
+        self, mock_getaddrinfo
+    ) -> None:
+        mock_getaddrinfo.return_value = [
+            (0, 0, 0, "", ("93.184.216.34", 443)),
+        ]
+
+        self.assertEqual(
+            validate_public_https_url(
+                "https://example.com/participants.csv",
+                label="Race URL",
+            ),
+            "https://example.com/participants.csv",
+        )
+
+    def test_validate_public_https_url_rejects_http(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must use https"):
+            validate_public_https_url("http://example.com/participants.csv")
+
+    @patch("trailintel.github_pipeline.socket.getaddrinfo")
+    def test_validate_public_https_url_rejects_private_targets(
+        self, mock_getaddrinfo
+    ) -> None:
+        mock_getaddrinfo.return_value = [
+            (0, 0, 0, "", ("127.0.0.1", 443)),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "must not target localhost"):
+            validate_public_https_url(
+                "https://internal.example/participants.csv",
+                label="Race URL",
+            )
+
     def test_parse_issue_form(self) -> None:
         body = """### Race Name
 Trail du Sanglier 2026

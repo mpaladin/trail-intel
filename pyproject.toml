@@ -7,7 +7,11 @@ name = "trailintel"
 version = "0.1.0"
 description = "TrailIntel: trail race participant enrichment with UTMB index and ITRA score."
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.13"
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+]
 dependencies = [
   "requests>=2.32.0",
   "beautifulsoup4>=4.12.0",

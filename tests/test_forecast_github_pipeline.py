@@ -129,13 +129,41 @@ Sunrise push.
                 return None
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("requests.get", return_value=FakeResponse(zip_bytes)):
-                path = download_gpx_source(
-                    source_url="https://example.com/route.zip",
-                    output_dir=tmp,
-                )
+            with patch(
+                "trailintel.github_pipeline.socket.getaddrinfo",
+                return_value=[(0, 0, 0, "", ("93.184.216.34", 443))],
+            ):
+                with patch("requests.get", return_value=FakeResponse(zip_bytes)):
+                    path = download_gpx_source(
+                        source_url="https://example.com/route.zip",
+                        output_dir=tmp,
+                    )
             self.assertEqual(path.name, "route.gpx")
             self.assertIn("<gpx>", path.read_text(encoding="utf-8"))
+
+    def test_download_gpx_source_rejects_http_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "must use https"):
+                download_gpx_source(
+                    source_url="http://example.com/route.zip",
+                    output_dir=tmp,
+                )
+
+    @patch(
+        "trailintel.github_pipeline.socket.getaddrinfo",
+        return_value=[(0, 0, 0, "", ("127.0.0.1", 443))],
+    )
+    def test_download_gpx_source_rejects_private_target(
+        self, _mock_getaddrinfo
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("requests.get") as mock_get:
+                with self.assertRaisesRegex(ValueError, "must not target localhost"):
+                    download_gpx_source(
+                        source_url="https://internal.example/route.zip",
+                        output_dir=tmp,
+                    )
+                mock_get.assert_not_called()
 
     def test_publish_forecast_bundle_updates_latest_and_indexes(self) -> None:
         request = ForecastRequest(

@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from trailintel.forecast.time_utils import parse_duration
-from trailintel.github_pipeline import normalize_slug_text
+from trailintel.github_pipeline import normalize_slug_text, validate_public_https_url
 
 FIELD_ALIASES = {
     "route name": "route_name",
@@ -233,17 +233,18 @@ def download_gpx_source(
     output_dir: str | Path,
     github_token: str | None = None,
 ) -> Path:
-    content, content_type = _download_response_content(source_url, github_token)
+    validated_url = validate_public_https_url(source_url, label="GPX URL")
+    content, content_type = _download_response_content(validated_url, github_token)
     if (
         zipfile.is_zipfile(BytesIO(content))
-        or looks_like_zip_url(source_url)
+        or looks_like_zip_url(validated_url)
         or "application/zip" in content_type
     ):
         return _extract_single_gpx_from_zip(content, output_dir=output_dir)
 
     stripped = content.lstrip()
     if (
-        source_url.lower().endswith(".gpx")
+        validated_url.lower().endswith(".gpx")
         or stripped.startswith(b"<?xml")
         or b"<gpx" in stripped[:256].lower()
     ):

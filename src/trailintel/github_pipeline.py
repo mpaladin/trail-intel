@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -117,6 +119,72 @@ def parse_issue_form(body: str) -> ReportRequest:
         top=top,
         strategy=strategy,
     )
+
+
+def _parse_ip_address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    candidate = value.strip()
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    if "%" in candidate:
+        candidate = candidate.split("%", 1)[0]
+    return ipaddress.ip_address(candidate)
+
+
+def _is_disallowed_target(
+    address: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    return (
+        address.is_loopback
+        or address.is_link_local
+        or address.is_private
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def validate_public_https_url(url: str, *, label: str = "URL") -> str:
+    value = url.strip()
+    if not value:
+        raise ValueError(f"{label} is required.")
+
+    parsed = urlparse(value)
+    if parsed.scheme.lower() != "https":
+        raise ValueError(f"{label} must use https.")
+    if not parsed.netloc or not parsed.hostname:
+        raise ValueError(f"{label} must include a hostname.")
+    if parsed.username or parsed.password:
+        raise ValueError(f"{label} must not embed credentials.")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise ValueError(
+            f"{label} must not target localhost, loopback, link-local, or private-network addresses."
+        )
+
+    port = parsed.port or 443
+    try:
+        addresses = [_parse_ip_address(hostname)]
+    except ValueError:
+        try:
+            resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ValueError(f"{label} host could not be resolved: {hostname}") from exc
+        addresses = []
+        for record in resolved:
+            try:
+                addresses.append(_parse_ip_address(record[4][0]))
+            except ValueError:
+                continue
+        if not addresses:
+            raise ValueError(f"{label} host could not be resolved: {hostname}")
+
+    if any(_is_disallowed_target(address) for address in addresses):
+        raise ValueError(
+            f"{label} must not target localhost, loopback, link-local, or private-network addresses."
+        )
+
+    return value
 
 
 def normalize_slug_text(value: str) -> str:
