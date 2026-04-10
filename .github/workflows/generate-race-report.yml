@@ -36,13 +36,12 @@ on:
           - participant-first
           - catalog-first
 
-permissions:
-  contents: read
-
 jobs:
   prepare:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(join(github.event.issue.labels.*.name, ','), 'report-request') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       authorized: ${{ steps.auth.outputs.authorized }}
       request_json: ${{ steps.request.outputs.request_json }}
