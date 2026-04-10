@@ -36,14 +36,12 @@ on:
         required: false
         type: string
 
-permissions:
-  contents: read
-  issues: write
-
 jobs:
   prepare:
     if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.issue.title, '[forecast]') || contains(join(github.event.issue.labels.*.name, ','), 'forecast-request') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       authorized: ${{ steps.auth.outputs.authorized }}
       request_json: ${{ steps.request.outputs.request_json }}
