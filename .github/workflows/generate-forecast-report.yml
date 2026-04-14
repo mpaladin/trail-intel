@@ -157,7 +157,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.createComment({
@@ -176,7 +176,7 @@ jobs:
     steps:
       - name: Comment invalid request on issue
         if: github.event_name == 'issues'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           REQUEST_ERROR: ${{ needs.prepare.outputs.request_error }}
         with:
@@ -356,7 +356,7 @@ jobs:
 
       - name: Comment success on issue
         if: github.event_name == 'issues'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PUBLISH_JSON: ${{ steps.publish.outputs.publish_json }}
         with:
@@ -392,7 +392,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@v9
         with:
           script: |
             await github.rest.issues.createComment({
