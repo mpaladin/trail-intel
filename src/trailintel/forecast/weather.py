@@ -82,6 +82,28 @@ class BaseForecastClient:
         if self._owns_client:
             self.http_client.close()
 
+    def _get_json(self, url: str, *, params: dict[str, str]) -> dict | list[dict]:
+        try:
+            response = self.http_client.get(url, params=params)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            message = response_error_message(exc.response)
+            status_code = exc.response.status_code
+            if message:
+                raise WeatherAPIError(
+                    f"Weather API request failed with HTTP {status_code}: {message}"
+                ) from exc
+            raise WeatherAPIError(
+                f"Weather API request failed with HTTP {status_code}."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise WeatherAPIError(f"Weather API request failed: {exc}") from exc
+
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise WeatherAPIError("Weather API returned invalid JSON.") from exc
+
 
 class OpenMeteoClient(BaseForecastClient):
     provider_id = OPEN_METEO_PROVIDER
@@ -135,22 +157,7 @@ class OpenMeteoClient(BaseForecastClient):
         return all_forecasts
 
     def _request(self, params: dict[str, str]) -> dict | list[dict]:
-        try:
-            response = self.http_client.get(self.base_url, params=params)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            message = response_error_message(exc.response)
-            if message:
-                raise WeatherAPIError(
-                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
-                ) from exc
-            raise WeatherAPIError(
-                f"Weather API request failed with HTTP {exc.response.status_code}."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise WeatherAPIError(f"Weather API request failed: {exc}") from exc
-
-        payload = response.json()
+        payload = self._get_json(self.base_url, params=params)
         if isinstance(payload, dict) and payload.get("error"):
             reason = payload.get("reason", "unknown error")
             raise WeatherAPIError(f"Weather API error: {reason}")
@@ -233,22 +240,7 @@ class MetNoClient(BaseForecastClient):
         if sample.elevation_m is not None and math.isfinite(sample.elevation_m):
             params["altitude"] = f"{sample.elevation_m:.0f}"
 
-        try:
-            response = self.http_client.get(self.base_url, params=params)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            message = response_error_message(exc.response)
-            if message:
-                raise WeatherAPIError(
-                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
-                ) from exc
-            raise WeatherAPIError(
-                f"Weather API request failed with HTTP {exc.response.status_code}."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise WeatherAPIError(f"Weather API request failed: {exc}") from exc
-
-        payload = response.json()
+        payload = self._get_json(self.base_url, params=params)
         if isinstance(payload, dict) and payload.get("error"):
             reason = payload.get("reason", "unknown error")
             raise WeatherAPIError(f"Weather API error: {reason}")
@@ -416,22 +408,7 @@ class WeatherAPIClient(BaseForecastClient):
             "alerts": "no",
         }
 
-        try:
-            response = self.http_client.get(self.base_url, params=params)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            message = response_error_message(exc.response)
-            if message:
-                raise WeatherAPIError(
-                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
-                ) from exc
-            raise WeatherAPIError(
-                f"Weather API request failed with HTTP {exc.response.status_code}."
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise WeatherAPIError(f"Weather API request failed: {exc}") from exc
-
-        payload = response.json()
+        payload = self._get_json(self.base_url, params=params)
         if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
             error = payload["error"]
             message = error.get("message", "unknown error")
