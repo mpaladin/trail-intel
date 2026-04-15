@@ -227,7 +227,9 @@ def build_provider_report(
         client.close()
 
     aligned = align_forecasts(samples, forecasts)
-    notes = tuple(dict.fromkeys(note for forecast in forecasts for note in forecast.notes))
+    notes = tuple(
+        dict.fromkeys(note for forecast in forecasts for note in forecast.notes)
+    )
     return ForecastReport(
         provider_id=definition.provider_id,
         route=route,
