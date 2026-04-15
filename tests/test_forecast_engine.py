@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
+
+import httpx
 
 from trailintel.forecast.engine import build_report as build_route_report
-from trailintel.forecast.engine import summarize_report
+from trailintel.forecast.engine import build_reports_with_metadata, summarize_report
 from trailintel.forecast.errors import InputValidationError
 from trailintel.forecast.models import (
     Bounds,
@@ -163,14 +167,107 @@ class ForecastEngineTests(unittest.TestCase):
             )
 
     def test_build_report_requires_weatherapi_key_before_network(self) -> None:
-        with self.assertRaisesRegex(InputValidationError, "WEATHERAPI_KEY"):
-            build_route_report(
-                gpx_path=FIXTURE,
-                start="2026-03-28T08:00:00+00:00",
-                duration="02:00",
-                provider="weatherapi",
-                now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
-            )
+        with patch.dict(os.environ, {"WEATHERAPI_KEY": ""}):
+            with self.assertRaisesRegex(InputValidationError, "WEATHERAPI_KEY"):
+                build_route_report(
+                    gpx_path=FIXTURE,
+                    start="2026-03-28T08:00:00+00:00",
+                    duration="02:00",
+                    provider="weatherapi",
+                    now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+                )
+
+    def test_build_reports_skips_comparison_provider_beyond_horizon(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.host, "api.open-meteo.com")
+            payload = {
+                "hourly": {
+                    "time": [
+                        "2026-03-31T08:00",
+                        "2026-03-31T09:00",
+                        "2026-03-31T10:00",
+                    ],
+                    "temperature_2m": [8, 10, 12],
+                    "apparent_temperature": [7, 9, 11],
+                    "wind_speed_10m": [12, 15, 18],
+                    "wind_gusts_10m": [18, 22, 25],
+                    "wind_direction_10m": [270, 280, 290],
+                    "cloud_cover": [25, 35, 45],
+                    "precipitation": [0.0, 0.2, 0.4],
+                    "precipitation_probability": [10, 35, 60],
+                }
+            }
+            latitudes = request.url.params["latitude"].split(",")
+            return httpx.Response(200, json=[payload for _ in latitudes])
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        result = build_reports_with_metadata(
+            gpx_path=FIXTURE,
+            start="2026-03-31T08:00:00+00:00",
+            duration="02:00",
+            provider="open-meteo",
+            compare_providers=["weatherapi"],
+            http_client=client,
+            now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+        )
+
+        self.assertEqual(len(result.reports), 1)
+        self.assertEqual(result.reports[0].provider_id, "open-meteo")
+        self.assertEqual(len(result.skipped_comparisons), 1)
+        self.assertEqual(result.skipped_comparisons[0].provider_id, "weatherapi")
+        self.assertIn("3-day forecast horizon", result.skipped_comparisons[0].reason)
+
+    def test_build_reports_skips_comparison_provider_on_api_error(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.open-meteo.com":
+                payload = {
+                    "hourly": {
+                        "time": [
+                            "2026-03-28T08:00",
+                            "2026-03-28T09:00",
+                            "2026-03-28T10:00",
+                        ],
+                        "temperature_2m": [8, 10, 12],
+                        "apparent_temperature": [7, 9, 11],
+                        "wind_speed_10m": [12, 15, 18],
+                        "wind_gusts_10m": [18, 22, 25],
+                        "wind_direction_10m": [270, 280, 290],
+                        "cloud_cover": [25, 35, 45],
+                        "precipitation": [0.0, 0.2, 0.4],
+                        "precipitation_probability": [10, 35, 60],
+                    }
+                }
+                latitudes = request.url.params["latitude"].split(",")
+                return httpx.Response(200, json=[payload for _ in latitudes])
+
+            if request.url.host == "api.weatherapi.com":
+                return httpx.Response(
+                    401,
+                    json={"error": {"code": 2006, "message": "API key is invalid."}},
+                )
+
+            raise AssertionError(f"Unexpected forecast host: {request.url.host}")
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        result = build_reports_with_metadata(
+            gpx_path=FIXTURE,
+            start="2026-03-28T08:00:00+00:00",
+            duration="02:00",
+            provider="open-meteo",
+            compare_providers=["weatherapi"],
+            weatherapi_key="test-key",
+            http_client=client,
+            now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+        )
+
+        self.assertEqual(len(result.reports), 1)
+        self.assertEqual(result.reports[0].provider_id, "open-meteo")
+        self.assertEqual(len(result.skipped_comparisons), 1)
+        self.assertEqual(result.skipped_comparisons[0].provider_id, "weatherapi")
+        self.assertIn("HTTP 401", result.skipped_comparisons[0].reason)
+        self.assertIn("API key is invalid", result.skipped_comparisons[0].reason)
 
 
 if __name__ == "__main__":

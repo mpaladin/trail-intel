@@ -163,6 +163,10 @@ trailintel-forecast forecast \
   --site-dir ./dist/forecast-site
 ```
 
+If a comparison provider cannot cover the requested ride window, TrailIntel still
+generates the primary forecast and reports the skipped comparison source in the
+CLI output and HTML bundle.
+
 Forecast bundles contain:
 
 - `index.html`

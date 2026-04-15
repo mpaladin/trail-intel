@@ -139,6 +139,11 @@ class OpenMeteoClient(BaseForecastClient):
             response = self.http_client.get(self.base_url, params=params)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            message = response_error_message(exc.response)
+            if message:
+                raise WeatherAPIError(
+                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
+                ) from exc
             raise WeatherAPIError(
                 f"Weather API request failed with HTTP {exc.response.status_code}."
             ) from exc
@@ -232,6 +237,11 @@ class MetNoClient(BaseForecastClient):
             response = self.http_client.get(self.base_url, params=params)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            message = response_error_message(exc.response)
+            if message:
+                raise WeatherAPIError(
+                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
+                ) from exc
             raise WeatherAPIError(
                 f"Weather API request failed with HTTP {exc.response.status_code}."
             ) from exc
@@ -410,6 +420,11 @@ class WeatherAPIClient(BaseForecastClient):
             response = self.http_client.get(self.base_url, params=params)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            message = response_error_message(exc.response)
+            if message:
+                raise WeatherAPIError(
+                    f"Weather API request failed with HTTP {exc.response.status_code}: {message}"
+                ) from exc
             raise WeatherAPIError(
                 f"Weather API request failed with HTTP {exc.response.status_code}."
             ) from exc
@@ -596,6 +611,28 @@ def apparent_temperature(
 
 def parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def response_error_message(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        reason = payload.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            return reason.strip()
+        message = payload.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+
+    return None
 
 
 def chunked(

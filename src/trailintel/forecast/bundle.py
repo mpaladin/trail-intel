@@ -10,7 +10,8 @@ import httpx
 
 from trailintel.forecast.engine import (
     ForecastSummary,
-    build_reports,
+    SkippedComparisonProvider,
+    build_reports_with_metadata,
     summarize_report,
 )
 from trailintel.forecast.errors import InputValidationError
@@ -27,6 +28,7 @@ class ForecastBundleResult:
     site_dir: Path | None
     snapshot: dict[str, object] | None
     comparison_reports: tuple[ForecastReport, ...] = ()
+    comparison_warnings: tuple[str, ...] = ()
 
 
 def _default_title(gpx_path: str | Path) -> str:
@@ -63,7 +65,7 @@ def generate_forecast_assets(
         )
 
     resolved_title = resolve_forecast_title(gpx_path, title)
-    reports = build_reports(
+    build_result = build_reports_with_metadata(
         gpx_path=gpx_path,
         start=start,
         duration=duration,
@@ -75,10 +77,14 @@ def generate_forecast_assets(
         weatherapi_key=weatherapi_key,
         now=now,
     )
+    reports = build_result.reports
     report = reports[0]
     comparison_reports = tuple(reports[1:])
     image_path = render_report(report, output_path, title=resolved_title)
     summary = summarize_report(report)
+    comparison_warnings = tuple(
+        format_comparison_warning(item) for item in build_result.skipped_comparisons
+    )
 
     exported_site_dir: Path | None = None
     snapshot: dict[str, object] | None = None
@@ -88,6 +94,7 @@ def generate_forecast_assets(
             report=report,
             summary=summary,
             comparison_reports=comparison_reports,
+            comparison_warnings=comparison_warnings,
             generated_at=generated_at or datetime.now(UTC),
         )
         exported_site_dir = export_forecast_site(
@@ -104,4 +111,11 @@ def generate_forecast_assets(
         site_dir=exported_site_dir,
         snapshot=snapshot,
         comparison_reports=comparison_reports,
+        comparison_warnings=comparison_warnings,
     )
+
+
+def format_comparison_warning(build_warning: SkippedComparisonProvider) -> str:
+    label = build_warning.label or build_warning.provider_id
+    reason = build_warning.reason or "Unavailable for this run."
+    return f"Skipped comparison provider {label}: {reason}"

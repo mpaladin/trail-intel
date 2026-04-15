@@ -142,6 +142,7 @@ def build_forecast_snapshot(
     report: ForecastReport,
     summary: ForecastSummary,
     comparison_reports: Sequence[ForecastReport] = (),
+    comparison_warnings: Sequence[str] = (),
     generated_at: datetime | None = None,
 ) -> dict[str, object]:
     stamp = (generated_at or datetime.now(UTC)).astimezone(UTC)
@@ -171,10 +172,11 @@ def build_forecast_snapshot(
         "key_moments": _build_key_moments(report),
         "sample_rows": _build_sample_rows(report),
     }
-    if comparison_reports:
+    if comparison_reports or comparison_warnings:
         snapshot["comparison"] = _build_comparison_snapshot(
             report,
             comparison_reports=comparison_reports,
+            comparison_warnings=comparison_warnings,
         )
     return snapshot
 
@@ -183,12 +185,16 @@ def _build_comparison_snapshot(
     report: ForecastReport,
     *,
     comparison_reports: Sequence[ForecastReport],
+    comparison_warnings: Sequence[str] = (),
 ) -> dict[str, object]:
     reports = [report, *comparison_reports]
-    return {
+    snapshot = {
         "primary_provider": report.provider_id,
         "providers": [_build_comparison_provider_entry(item) for item in reports],
     }
+    if comparison_warnings:
+        snapshot["warnings"] = list(comparison_warnings)
+    return snapshot
 
 
 def _build_comparison_provider_entry(report: ForecastReport) -> dict[str, object]:
@@ -445,24 +451,59 @@ def _comparison_key_moment_cards(providers: list[dict[str, object]]) -> str:
     return '<div class="section-stack">' + "".join(cards) + "</div>"
 
 
+def _comparison_warning_notice(warnings: list[str]) -> str:
+    if not warnings:
+        return ""
+    lines = "".join(
+        f"<li>{html.escape(message)}</li>" for message in warnings if message.strip()
+    )
+    if not lines:
+        return ""
+    return (
+        '<div class="empty-state"><strong>Skipped comparison sources</strong>'
+        f"<ul>{lines}</ul></div>"
+    )
+
+
 def _comparison_section(snapshot: dict[str, object]) -> str:
     comparison = snapshot.get("comparison")
     if not isinstance(comparison, dict):
         return ""
     providers = comparison.get("providers")
     if not isinstance(providers, list) or not providers:
-        return ""
+        providers = []
     typed_providers = [item for item in providers if isinstance(item, dict)]
-    if not typed_providers:
+    warnings = comparison.get("warnings")
+    typed_warnings = (
+        [str(item) for item in warnings if str(item).strip()]
+        if isinstance(warnings, list)
+        else []
+    )
+    available_comparisons = typed_providers if len(typed_providers) > 1 else []
+    comparison_count = max(len(typed_providers) - 1, 0)
+    if not available_comparisons and not typed_warnings:
         return ""
+    warning_notice = _comparison_warning_notice(typed_warnings)
+    if not available_comparisons:
+        return f"""
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Provider Comparison</h2>
+          <span class="pill">0 available</span>
+        </div>
+        <p class="section-caption">The selected comparison sources could not cover the requested ride window.</p>
+        {warning_notice}
+      </section>
+    """
     return f"""
       <section class="panel">
         <div class="panel-head">
           <h2>Provider Comparison</h2>
-          <span class="pill">{len(typed_providers)} sources</span>
+          <span class="pill">{comparison_count} comparison source{"s" if comparison_count != 1 else ""}</span>
         </div>
         <p class="section-caption">Side-by-side forecast summaries across the selected providers for the same sampled route timeline.</p>
-        {_comparison_summary_table(typed_providers)}
+        {warning_notice}
+        {_comparison_summary_table(available_comparisons)}
       </section>
 
       <section class="panel">
@@ -471,7 +512,7 @@ def _comparison_section(snapshot: dict[str, object]) -> str:
           <span class="pill">Cross-source checkpoints</span>
         </div>
         <p class="section-caption">Start, coldest, windiest, wettest, and finish checkpoints shown provider by provider for quick comparison.</p>
-        {_comparison_key_moment_cards(typed_providers)}
+        {_comparison_key_moment_cards(available_comparisons)}
       </section>
     """
 

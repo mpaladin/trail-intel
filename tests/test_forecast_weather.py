@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
+from trailintel.forecast.errors import WeatherAPIError
 from trailintel.forecast.models import SamplePoint
 from trailintel.forecast.weather import MetNoClient, OpenMeteoClient, WeatherAPIClient
 
@@ -191,6 +192,26 @@ class ForecastWeatherTests(unittest.TestCase):
         self.assertEqual(forecasts[0].apparent_temperature_c[0], 6.0)
         self.assertEqual(forecasts[0].wind_gust_kph[1], 19.0)
         self.assertEqual(forecasts[0].precipitation_probability[1], 20.0)
+
+    def test_weatherapi_client_surfaces_http_error_message(self) -> None:
+        def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                401,
+                json={"error": {"code": 2006, "message": "API key is invalid."}},
+            )
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        service = WeatherAPIClient(
+            http_client=client,
+            api_key="test-key",
+            request_interval_seconds=0.0,
+        )
+
+        with self.assertRaisesRegex(
+            WeatherAPIError,
+            "HTTP 401: API key is invalid",
+        ):
+            service.fetch_hourly([make_sample(0)])
 
 
 if __name__ == "__main__":

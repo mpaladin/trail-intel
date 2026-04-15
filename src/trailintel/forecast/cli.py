@@ -99,6 +99,7 @@ def forecast(
                     if result.site_dir is not None
                     else ""
                 ),
+                *result.comparison_warnings,
             ]
             if line
         )
