@@ -9,34 +9,19 @@ from unittest.mock import patch
 
 import httpx
 
+from tests.forecast_test_support import (
+    FIXTURE,
+    make_open_meteo_payload,
+    open_meteo_batch_response,
+    render_without_real_map,
+)
 from trailintel.forecast.bundle import generate_forecast_assets
-from trailintel.forecast.render import render_report as original_render_report
-
-FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
 
 
 class ForecastBundleTests(unittest.TestCase):
     def test_generate_forecast_assets_writes_site_bundle(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            payload = {
-                "hourly": {
-                    "time": [
-                        "2026-03-28T08:00",
-                        "2026-03-28T09:00",
-                        "2026-03-28T10:00",
-                    ],
-                    "temperature_2m": [8, 10, 12],
-                    "apparent_temperature": [7, 9, 11],
-                    "wind_speed_10m": [12, 15, 18],
-                    "wind_gusts_10m": [18, 22, 25],
-                    "wind_direction_10m": [270, 280, 290],
-                    "cloud_cover": [25, 35, 45],
-                    "precipitation": [0.0, 0.2, 0.4],
-                    "precipitation_probability": [10, 35, 60],
-                }
-            }
-            latitudes = request.url.params["latitude"].split(",")
-            return httpx.Response(200, json=[payload for _ in latitudes])
+            return open_meteo_batch_response(request)
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -45,18 +30,13 @@ class ForecastBundleTests(unittest.TestCase):
             site_dir = Path(tmp) / "site"
             captured_render: dict[str, str | None] = {}
 
-            def render_without_map(report, output_path, *, title=None):
+            def capture_render(report, output_path, *, title=None):
                 captured_render["title"] = title
-                return original_render_report(
-                    report,
-                    output_path,
-                    title=title,
-                    use_real_map=False,
-                )
+                return render_without_real_map(report, output_path, title=title)
 
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_map,
+                capture_render,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -107,25 +87,7 @@ class ForecastBundleTests(unittest.TestCase):
     def test_generate_forecast_assets_writes_comparison_snapshot_and_html(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.open-meteo.com":
-                payload = {
-                    "hourly": {
-                        "time": [
-                            "2026-03-28T08:00",
-                            "2026-03-28T09:00",
-                            "2026-03-28T10:00",
-                        ],
-                        "temperature_2m": [8, 10, 12],
-                        "apparent_temperature": [7, 9, 11],
-                        "wind_speed_10m": [12, 15, 18],
-                        "wind_gusts_10m": [18, 22, 25],
-                        "wind_direction_10m": [270, 280, 290],
-                        "cloud_cover": [25, 35, 45],
-                        "precipitation": [0.0, 0.2, 0.4],
-                        "precipitation_probability": [10, 35, 60],
-                    }
-                }
-                latitudes = request.url.params["latitude"].split(",")
-                return httpx.Response(200, json=[payload for _ in latitudes])
+                return open_meteo_batch_response(request)
 
             if request.url.host == "api.met.no":
                 payload = {
@@ -204,17 +166,9 @@ class ForecastBundleTests(unittest.TestCase):
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
 
-            def render_without_map(report, output_path, *, title=None):
-                return original_render_report(
-                    report,
-                    output_path,
-                    title=title,
-                    use_real_map=False,
-                )
-
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_map,
+                render_without_real_map,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -248,6 +202,64 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Provider Key Moments", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
+
+    def test_generate_forecast_assets_skips_short_horizon_comparison_provider(
+        self,
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return open_meteo_batch_response(
+                request,
+                payload=make_open_meteo_payload(
+                    times=(
+                        "2026-03-31T08:00",
+                        "2026-03-31T09:00",
+                        "2026-03-31T10:00",
+                    )
+                ),
+            )
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "forecast.png"
+            site_dir = Path(tmp) / "site"
+
+            with patch(
+                "trailintel.forecast.bundle.render_report",
+                render_without_real_map,
+            ):
+                result = generate_forecast_assets(
+                    gpx_path=FIXTURE,
+                    start="2026-03-31T08:00:00+00:00",
+                    duration="02:00",
+                    output_path=output,
+                    site_dir=site_dir,
+                    title="Sample Loop Forecast",
+                    provider="open-meteo",
+                    compare_providers=["weatherapi"],
+                    http_client=client,
+                    now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+                    generated_at=datetime(2026, 3, 27, 12, 30, tzinfo=UTC),
+                )
+
+            self.assertEqual(result.comparison_reports, ())
+            self.assertEqual(len(result.comparison_warnings), 1)
+            self.assertIn("WeatherAPI.com", result.comparison_warnings[0])
+            self.assertIn("3-day forecast horizon", result.comparison_warnings[0])
+
+            snapshot = json.loads(
+                (site_dir / "snapshot.json").read_text(encoding="utf-8")
+            )
+            comparison = snapshot.get("comparison")
+            self.assertIsInstance(comparison, dict)
+            self.assertEqual(
+                comparison["warnings"],
+                [result.comparison_warnings[0]],
+            )
+
+            html = (site_dir / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Skipped comparison sources", html)
+            self.assertIn("WeatherAPI.com", html)
 
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
         import math
