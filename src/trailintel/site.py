@@ -656,6 +656,8 @@ def _render_document(
     reports_href: str,
     forecasts_href: str,
     body_html: str,
+    head_extras: str = "",
+    body_end_html: str = "",
 ) -> str:
     safe_title = html.escape(title)
     return f"""<!DOCTYPE html>
@@ -667,6 +669,7 @@ def _render_document(
   <style>
     {_shared_page_styles(theme)}
   </style>
+  {head_extras}
 </head>
 <body>
   <main class="page">
@@ -680,6 +683,7 @@ def _render_document(
     }
     {body_html}
   </main>
+  {body_end_html}
 </body>
 </html>
 """

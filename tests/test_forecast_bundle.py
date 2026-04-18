@@ -9,34 +9,37 @@ from unittest.mock import patch
 
 import httpx
 
+from tests.forecast_test_support import (
+    FIXTURE,
+    make_open_meteo_payload,
+    open_meteo_batch_response,
+    render_without_real_map,
+)
 from trailintel.forecast.bundle import generate_forecast_assets
-from trailintel.forecast.render import render_report as original_render_report
-
-FIXTURE = Path(__file__).parent / "fixtures" / "sample_route.gpx"
+from trailintel.forecast.engine import summarize_report
+from trailintel.forecast.models import (
+    Bounds,
+    ForecastReport,
+    RouteData,
+    RoutePoint,
+    SampleForecast,
+    SamplePoint,
+)
+from trailintel.forecast.site import (
+    FORECAST_CHART_DATA_ID,
+    UPLOT_CSS_INTEGRITY,
+    UPLOT_CSS_URL,
+    UPLOT_JS_INTEGRITY,
+    UPLOT_JS_URL,
+    build_forecast_snapshot,
+    render_forecast_html,
+)
 
 
 class ForecastBundleTests(unittest.TestCase):
     def test_generate_forecast_assets_writes_site_bundle(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            payload = {
-                "hourly": {
-                    "time": [
-                        "2026-03-28T08:00",
-                        "2026-03-28T09:00",
-                        "2026-03-28T10:00",
-                    ],
-                    "temperature_2m": [8, 10, 12],
-                    "apparent_temperature": [7, 9, 11],
-                    "wind_speed_10m": [12, 15, 18],
-                    "wind_gusts_10m": [18, 22, 25],
-                    "wind_direction_10m": [270, 280, 290],
-                    "cloud_cover": [25, 35, 45],
-                    "precipitation": [0.0, 0.2, 0.4],
-                    "precipitation_probability": [10, 35, 60],
-                }
-            }
-            latitudes = request.url.params["latitude"].split(",")
-            return httpx.Response(200, json=[payload for _ in latitudes])
+            return open_meteo_batch_response(request)
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -45,18 +48,13 @@ class ForecastBundleTests(unittest.TestCase):
             site_dir = Path(tmp) / "site"
             captured_render: dict[str, str | None] = {}
 
-            def render_without_map(report, output_path, *, title=None):
+            def capture_render(report, output_path, *, title=None):
                 captured_render["title"] = title
-                return original_render_report(
-                    report,
-                    output_path,
-                    title=title,
-                    use_real_map=False,
-                )
+                return render_without_real_map(report, output_path, title=title)
 
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_map,
+                capture_render,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -82,16 +80,35 @@ class ForecastBundleTests(unittest.TestCase):
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Sample Loop Forecast", html)
             self.assertIn("Route Forecast", html)
+            self.assertIn("Forecast Charts", html)
             self.assertIn("Forecast Overview", html)
-            self.assertIn("Key Moments", html)
-            self.assertIn("Route Timeline", html)
+            self.assertNotIn("<h2>Key Moments</h2>", html)
+            self.assertNotIn("<h2>Route Timeline</h2>", html)
+            self.assertNotIn("route timeline below", html)
+            self.assertIn("Temperature", html)
+            self.assertIn("Feels Like", html)
+            self.assertIn("Precipitation", html)
+            self.assertIn("Cloud Cover", html)
+            self.assertIn("Wind", html)
+            self.assertIn("Elevation", html)
             self.assertIn('href="forecast.png"', html)
             self.assertIn('href="route.gpx"', html)
             self.assertIn('href="snapshot.json"', html)
+            self.assertIn(UPLOT_CSS_URL, html)
+            self.assertIn(UPLOT_JS_URL, html)
+            self.assertIn(UPLOT_CSS_INTEGRITY, html)
+            self.assertIn(UPLOT_JS_INTEGRITY, html)
+            self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
+            self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", html)
+            self.assertIn("space: 120", html)
+            self.assertIn("size: 78", html)
+            self.assertIn("Wind (km/h)", html)
+            self.assertIn("function axisValueLabel(metricId, value)", html)
+            self.assertIn("Interactive charts need JavaScript enabled.", html)
+            self.assertIn("Interactive charts could not load.", html)
             self.assertIn("Published Mar 27, 2026 at 12:30 UTC", html)
             self.assertNotIn("2026-03-27T12:30:00+00:00", html)
-            self.assertIn("Mar 28, 08:00", html)
-            self.assertNotIn("2026-03-28T08:00:00+00:00", html)
+            self.assertIn("Mar 28, 2026 at 08:00 UTC", html)
 
             snapshot = json.loads(
                 (site_dir / "snapshot.json").read_text(encoding="utf-8")
@@ -103,29 +120,25 @@ class ForecastBundleTests(unittest.TestCase):
                 [item["kind"] for item in snapshot["key_moments"]],
                 ["start", "coldest", "windiest", "wettest", "finish"],
             )
+            chart_data = snapshot.get("chart_data")
+            self.assertIsInstance(chart_data, dict)
+            self.assertEqual(chart_data["x_axis"], "time")
+            self.assertEqual(len(chart_data["providers"]), 1)
+            self.assertEqual(chart_data["providers"][0]["provider_id"], "open-meteo")
+            self.assertTrue(chart_data["providers"][0]["is_primary"])
+            self.assertEqual(
+                len(chart_data["providers"][0]["samples"]),
+                snapshot["sample_count"],
+            )
+            self.assertEqual(
+                len(chart_data["route_profile"]),
+                snapshot["sample_count"],
+            )
 
     def test_generate_forecast_assets_writes_comparison_snapshot_and_html(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.open-meteo.com":
-                payload = {
-                    "hourly": {
-                        "time": [
-                            "2026-03-28T08:00",
-                            "2026-03-28T09:00",
-                            "2026-03-28T10:00",
-                        ],
-                        "temperature_2m": [8, 10, 12],
-                        "apparent_temperature": [7, 9, 11],
-                        "wind_speed_10m": [12, 15, 18],
-                        "wind_gusts_10m": [18, 22, 25],
-                        "wind_direction_10m": [270, 280, 290],
-                        "cloud_cover": [25, 35, 45],
-                        "precipitation": [0.0, 0.2, 0.4],
-                        "precipitation_probability": [10, 35, 60],
-                    }
-                }
-                latitudes = request.url.params["latitude"].split(",")
-                return httpx.Response(200, json=[payload for _ in latitudes])
+                return open_meteo_batch_response(request)
 
             if request.url.host == "api.met.no":
                 payload = {
@@ -204,17 +217,9 @@ class ForecastBundleTests(unittest.TestCase):
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
 
-            def render_without_map(report, output_path, *, title=None):
-                return original_render_report(
-                    report,
-                    output_path,
-                    title=title,
-                    use_real_map=False,
-                )
-
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_map,
+                render_without_real_map,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -242,12 +247,165 @@ class ForecastBundleTests(unittest.TestCase):
                 [item["provider_id"] for item in comparison["providers"]],
                 ["open-meteo", "met-no"],
             )
+            chart_data = snapshot.get("chart_data")
+            self.assertIsInstance(chart_data, dict)
+            self.assertEqual(
+                [item["provider_id"] for item in chart_data["providers"]],
+                ["open-meteo", "met-no"],
+            )
+            self.assertTrue(chart_data["providers"][0]["is_primary"])
+            self.assertIn(
+                "has_apparent_temperature",
+                chart_data["providers"][1]["coverage"],
+            )
+            self.assertEqual(
+                len(chart_data["providers"][0]["samples"]),
+                snapshot["sample_count"],
+            )
+            self.assertEqual(
+                len(chart_data["providers"][1]["samples"]),
+                snapshot["sample_count"],
+            )
 
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Provider Comparison", html)
-            self.assertIn("Provider Key Moments", html)
+            self.assertNotIn("Provider Key Moments", html)
+            self.assertNotIn("route timeline below", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
+            self.assertIn("Forecast Charts", html)
+            self.assertIn("hour12: false", html)
+            self.assertIn("size: 64", html)
+            self.assertIn("Values shown in km/h.", html)
+
+    def test_generate_forecast_assets_skips_short_horizon_comparison_provider(
+        self,
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return open_meteo_batch_response(
+                request,
+                payload=make_open_meteo_payload(
+                    times=(
+                        "2026-03-31T08:00",
+                        "2026-03-31T09:00",
+                        "2026-03-31T10:00",
+                    )
+                ),
+            )
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "forecast.png"
+            site_dir = Path(tmp) / "site"
+
+            with patch(
+                "trailintel.forecast.bundle.render_report",
+                render_without_real_map,
+            ):
+                result = generate_forecast_assets(
+                    gpx_path=FIXTURE,
+                    start="2026-03-31T08:00:00+00:00",
+                    duration="02:00",
+                    output_path=output,
+                    site_dir=site_dir,
+                    title="Sample Loop Forecast",
+                    provider="open-meteo",
+                    compare_providers=["weatherapi"],
+                    http_client=client,
+                    now=datetime(2026, 3, 27, 12, 0, tzinfo=UTC),
+                    generated_at=datetime(2026, 3, 27, 12, 30, tzinfo=UTC),
+                )
+
+            self.assertEqual(result.comparison_reports, ())
+            self.assertEqual(len(result.comparison_warnings), 1)
+            self.assertIn("WeatherAPI.com", result.comparison_warnings[0])
+            self.assertIn("3-day forecast horizon", result.comparison_warnings[0])
+
+            snapshot = json.loads(
+                (site_dir / "snapshot.json").read_text(encoding="utf-8")
+            )
+            comparison = snapshot.get("comparison")
+            self.assertIsInstance(comparison, dict)
+            self.assertEqual(
+                comparison["warnings"],
+                [result.comparison_warnings[0]],
+            )
+            chart_data = snapshot.get("chart_data")
+            self.assertIsInstance(chart_data, dict)
+            self.assertEqual(len(chart_data["providers"]), 1)
+            self.assertEqual(chart_data["providers"][0]["provider_id"], "open-meteo")
+
+            html = (site_dir / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Forecast Charts", html)
+            self.assertIn("Skipped comparison sources", html)
+            self.assertIn("WeatherAPI.com", html)
+
+    def test_render_forecast_html_handles_missing_optional_chart_series(self) -> None:
+        from datetime import timedelta
+
+        start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
+        duration = timedelta(hours=2)
+        route = RouteData(
+            points=[
+                RoutePoint(lat=47.37, lon=8.54, elevation_m=410.0, distance_m=0.0),
+                RoutePoint(lat=47.39, lon=8.57, elevation_m=510.0, distance_m=14_000.0),
+            ],
+            total_distance_m=14_000.0,
+            total_ascent_m=100.0,
+            bounds=Bounds(min_lat=47.37, max_lat=47.39, min_lon=8.54, max_lon=8.57),
+        )
+        samples = [
+            SampleForecast(
+                sample=SamplePoint(
+                    index=index,
+                    fraction=index / 2,
+                    elapsed=timedelta(hours=index),
+                    timestamp=start + timedelta(hours=index),
+                    lat=47.37 + index * 0.01,
+                    lon=8.54 + index * 0.01,
+                    elevation_m=410.0 + index * 30,
+                    distance_m=index * 7_000.0,
+                ),
+                temperature_c=7.0 + index,
+                apparent_temperature_c=None,
+                wind_kph=12.0 + index,
+                wind_gust_kph=None,
+                wind_direction_deg=270.0 + index * 5,
+                cloud_cover_pct=35.0 + index * 10,
+                precipitation_mm=0.1 * index,
+                precipitation_probability=None,
+            )
+            for index in range(3)
+        ]
+        report = ForecastReport(
+            provider_id="met-no",
+            route=route,
+            samples=samples,
+            start_time=start,
+            end_time=start + duration,
+            duration=duration,
+            source_label="MET Norway Locationforecast API (yr.no data)",
+        )
+        snapshot = build_forecast_snapshot(
+            title="Missing Optional Series",
+            report=report,
+            summary=summarize_report(report),
+            generated_at=datetime(2026, 3, 27, 12, 30, tzinfo=UTC),
+        )
+
+        chart_data = snapshot.get("chart_data")
+        self.assertIsInstance(chart_data, dict)
+        self.assertFalse(
+            chart_data["providers"][0]["coverage"]["has_apparent_temperature"]
+        )
+        self.assertFalse(chart_data["providers"][0]["coverage"]["has_wind_gust"])
+
+        html = render_forecast_html(snapshot)
+        self.assertIn("Forecast Charts", html)
+        self.assertIn('"has_apparent_temperature": false', html)
+        self.assertIn('"has_wind_gust": false', html)
+        self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
 
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
         import math
