@@ -77,12 +77,12 @@ CHART_SPECS = (
     (
         "cloud-cover",
         "Cloud Cover",
-        "Cloud cover percentage along the same route timeline for each provider.",
+        "Cloud cover percentage along the same sampled route for each provider.",
     ),
     (
         "wind",
-        "Wind",
-        "Sustained wind comparison across providers, aligned to the sampled route timeline.",
+        "Wind (km/h)",
+        "Sustained wind comparison across providers, aligned to the sampled route.",
     ),
     (
         "elevation",
@@ -573,16 +573,16 @@ def _render_chart_section(chart_data: dict[str, object]) -> str:
           <h2>Forecast Charts</h2>
           <span class="pill">uPlot comparison view</span>
         </div>
-        <p class="section-caption">Interactive provider overlays across the sampled route timeline. Hover any chart to compare the same moment in time.</p>
+        <p class="section-caption">Interactive provider overlays across the sampled route. Hover any chart to compare the same moment in time.</p>
         {provider_legend}
         <div id="{FORECAST_CHART_HOVER_ID}" class="forecast-chart-hover" aria-live="polite">
           Hover a chart to inspect the same route moment across providers.
         </div>
         <noscript>
-          <div class="empty-state">Interactive charts need JavaScript enabled. The PNG summary and route timeline below still contain the forecast details.</div>
+          <div class="empty-state">Interactive charts need JavaScript enabled. The PNG summary and downloads below still contain the forecast details.</div>
         </noscript>
         <div id="{FORECAST_CHARTS_FALLBACK_ID}" class="empty-state" hidden>
-          Interactive charts could not load. The PNG summary and route timeline below still contain the forecast details.
+          Interactive charts could not load. The PNG summary and downloads below still contain the forecast details.
         </div>
         <div class="forecast-chart-grid" data-forecast-chart-grid>
           {_render_forecast_chart_cards()}
@@ -653,7 +653,7 @@ def _render_forecast_head_extras() -> str:
     }}
     .forecast-chart-grid {{
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
       margin-top: 18px;
     }}
@@ -675,7 +675,7 @@ def _render_forecast_head_extras() -> str:
     }}
     .forecast-chart-canvas {{
       margin-top: 14px;
-      min-height: 320px;
+      min-height: 340px;
       padding: 12px;
       border-radius: 20px;
       border: 1px solid var(--line);
@@ -685,12 +685,14 @@ def _render_forecast_head_extras() -> str:
     .forecast-chart-canvas .uplot {{
       width: 100%;
     }}
-    @media (max-width: 640px) {{
+    @media (max-width: 980px) {{
       .forecast-chart-grid {{
         grid-template-columns: 1fr;
       }}
+    }}
+    @media (max-width: 640px) {{
       .forecast-chart-canvas {{
-        min-height: 280px;
+        min-height: 300px;
       }}
     }}
   </style>
@@ -763,6 +765,24 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
         return new Intl.DateTimeFormat("en-US", options);
       }}
 
+      function buildAxisDateFormatter(timezoneName) {{
+        const options = {{
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }};
+        if (timezoneName) {{
+          try {{
+            return new Intl.DateTimeFormat("en-US", {{...options, timeZone: timezoneName}});
+          }} catch (_error) {{
+            return new Intl.DateTimeFormat("en-US", options);
+          }}
+        }}
+        return new Intl.DateTimeFormat("en-US", options);
+      }}
+
       function formatNumber(value, digits) {{
         if (value === null || value === undefined || Number.isNaN(value)) {{
           return "n/a";
@@ -819,12 +839,21 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
         switch (metricId) {{
           case "precipitation":
             return 2;
+          case "wind":
           case "cloud-cover":
           case "elevation":
             return 0;
           default:
             return 1;
         }}
+      }}
+
+      function axisValueLabel(metricId, value) {{
+        const digits = metricDigits(metricId);
+        if (metricId === "wind") {{
+          return formatNumber(value, digits);
+        }}
+        return `${{formatNumber(value, digits)}} ${{metricUnit(metricId)}}`;
       }}
 
       function renderHoverContent(metricId, metricTitle, idx, payload, providerSeries) {{
@@ -884,7 +913,7 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
           }}
           const opts = {{
             width: Math.max(container.clientWidth - 24, 280),
-            height: 280,
+            height: 300,
             legend: {{ show: false }},
             cursor: {{
               sync: {{ key: "trailintel-forecast-sync" }},
@@ -895,9 +924,12 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
             }},
             axes: [
               {{
-                values: (_u, vals) => vals.map((value) => dateFormatter.format(new Date(value))),
+                size: 76,
+                space: 120,
+                values: (_u, vals) => vals.map((value) => axisDateFormatter.format(new Date(value))),
               }},
               {{
+                size: 78,
                 values: (_u, vals) => vals.map((value) => `${{formatNumber(value, 0)}} m`),
               }},
             ],
@@ -983,9 +1015,12 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
         }}
 
         if (note) {{
-          note.textContent = unavailableLabels.length
+          const baseNote = unavailableLabels.length
             ? `Unavailable from: ${{unavailableLabels.join(", ")}}.`
             : `All available providers are plotted on the same chart.`;
+          note.textContent = metricSpec.id === "wind"
+            ? `${{baseNote}} Values shown in km/h.`
+            : baseNote;
         }}
 
         const opts = {{
@@ -1001,10 +1036,13 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
           }},
           axes: [
             {{
-              values: (_u, vals) => vals.map((value) => dateFormatter.format(new Date(value))),
+              size: 76,
+              space: 120,
+              values: (_u, vals) => vals.map((value) => axisDateFormatter.format(new Date(value))),
             }},
             {{
-              values: (_u, vals) => vals.map((value) => `${{formatNumber(value, metricDigits(metricSpec.id))}} ${{metricUnit(metricSpec.id)}}`),
+              size: 64,
+              values: (_u, vals) => vals.map((value) => axisValueLabel(metricSpec.id, value)),
             }},
           ],
           series: [
@@ -1057,7 +1095,7 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
         return;
       }}
       if (typeof window.uPlot !== "function") {{
-        setFallback("Interactive charts could not load from the CDN. The PNG summary and route timeline below still contain the forecast details.");
+        setFallback("Interactive charts could not load from the CDN. The PNG summary and downloads below still contain the forecast details.");
         return;
       }}
       if (!Array.isArray(payload.providers) || !payload.providers.length) {{
@@ -1070,6 +1108,7 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
       }}
 
       const dateFormatter = buildDateFormatter(payload.timezone || "");
+      const axisDateFormatter = buildAxisDateFormatter(payload.timezone || "");
       for (const metricSpec of chartSpecs) {{
         initMetricChart(metricSpec, payload, dateFormatter);
       }}
@@ -1078,7 +1117,7 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
         for (const entry of chartEntries) {{
           entry.chart.setSize({{
             width: Math.max(entry.container.clientWidth - 24, 280),
-            height: 280,
+            height: 300,
           }});
         }}
       }};
