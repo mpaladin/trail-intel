@@ -569,7 +569,7 @@ class ForecastBundleTests(unittest.TestCase):
                 self.assertTrue(output.exists())
                 self.assertGreater(output.stat().st_size, 0)
                 with Image.open(output) as image:
-                    self.assertEqual(image.size, (1800, 2400))
+                    self.assertEqual(image.size, (1800, 2700))
 
     def test_render_report_handles_multi_provider_comparison(self) -> None:
         from trailintel.forecast.render import render_report
@@ -608,7 +608,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 0)
             with Image.open(output) as image:
-                self.assertEqual(image.size, (1800, 2400))
+                self.assertEqual(image.size, (1800, 2700))
 
     def test_render_report_handles_missing_optional_series(self) -> None:
         from trailintel.forecast.render import render_report
@@ -637,7 +637,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 0)
             with Image.open(output) as image:
-                self.assertEqual(image.size, (1800, 2400))
+                self.assertEqual(image.size, (1800, 2700))
 
 
 if __name__ == "__main__":

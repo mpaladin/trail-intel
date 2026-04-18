@@ -93,11 +93,11 @@ def render_report(
     providers = build_rendered_providers(report, comparison_reports)
     primary = providers[0]
 
-    fig = plt.figure(figsize=(12, 16), dpi=150, facecolor=BACKGROUND)
+    fig = plt.figure(figsize=(12, 18), dpi=150, facecolor=BACKGROUND)
     grid = fig.add_gridspec(
         6,
         2,
-        height_ratios=[0.16, 0.14, 0.14, 0.14, 0.21, 0.21],
+        height_ratios=[0.14, 0.15, 0.15, 0.15, 0.205, 0.205],
         width_ratios=[1.04, 1.0],
         hspace=0.10,
         wspace=0.08,
@@ -326,7 +326,7 @@ def render_provider_overlay_panel(
     empty_message: str = "No comparison data is available for this metric.",
 ) -> None:
     prepare_panel(axis, title)
-    plot_ax = axis.inset_axes([0.08, 0.22, 0.86, 0.60])
+    plot_ax = axis.inset_axes([0.08, 0.14, 0.86, 0.52])
 
     primary_timestamps = display_timestamps(providers[0].report)
     series_entries: list[tuple[RenderedProvider, list[datetime], np.ndarray]] = []
@@ -387,7 +387,7 @@ def render_provider_overlay_panel(
 
 def render_elevation_panel(axis, report: ForecastReport) -> None:
     prepare_panel(axis, "Elevation (m)", subtitle="Shared route profile across providers")
-    plot_ax = axis.inset_axes([0.08, 0.40, 0.84, 0.42])
+    plot_ax = axis.inset_axes([0.08, 0.28, 0.84, 0.40])
 
     timestamps = display_timestamps(report)
     elevation = np.array(
