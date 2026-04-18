@@ -82,8 +82,8 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Route Forecast", html)
             self.assertIn("Forecast Charts", html)
             self.assertIn("Forecast Overview", html)
-            self.assertIn("Key Moments", html)
-            self.assertIn("Route Timeline", html)
+            self.assertNotIn("<h2>Key Moments</h2>", html)
+            self.assertNotIn("<h2>Route Timeline</h2>", html)
             self.assertIn("Temperature", html)
             self.assertIn("Feels Like", html)
             self.assertIn("Precipitation", html)
@@ -102,7 +102,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Interactive charts could not load.", html)
             self.assertIn("Published Mar 27, 2026 at 12:30 UTC", html)
             self.assertNotIn("2026-03-27T12:30:00+00:00", html)
-            self.assertIn("Mar 28, 08:00", html)
+            self.assertIn("Mar 28, 2026 at 08:00 UTC", html)
 
             snapshot = json.loads(
                 (site_dir / "snapshot.json").read_text(encoding="utf-8")
@@ -263,7 +263,7 @@ class ForecastBundleTests(unittest.TestCase):
 
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Provider Comparison", html)
-            self.assertIn("Provider Key Moments", html)
+            self.assertNotIn("Provider Key Moments", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
             self.assertIn("Forecast Charts", html)

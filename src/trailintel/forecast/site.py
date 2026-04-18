@@ -391,69 +391,6 @@ def build_forecast_metadata(snapshot: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _sample_rows_table(rows: list[dict[str, object]]) -> str:
-    if not rows:
-        return '<div class="empty-state">No forecast samples available.</div>'
-
-    body_rows: list[str] = []
-    for row in rows:
-        timestamp = _format_compact_timestamp(
-            row.get("timestamp"),
-            default=str(row.get("timestamp", "")),
-        )
-        body_rows.append(
-            "".join(
-                [
-                    "<tr>",
-                    f'<td class="score-cell">{html.escape(timestamp)}</td>',
-                    f"<td>{html.escape(_display_cell(row.get('distance_km')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('elevation_m')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('temperature_c')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('apparent_temperature_c')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('wind_kph')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('wind_gust_kph')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('wind_direction_deg')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('cloud_cover_pct')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('precipitation_mm')))}</td>",
-                    f"<td>{html.escape(_display_cell(row.get('precipitation_probability')))}</td>",
-                    "</tr>",
-                ]
-            )
-        )
-    return (
-        '<div class="table-wrap"><table class="results-table">'
-        "<thead><tr>"
-        "<th>Timestamp</th><th>Distance (km)</th><th>Elevation (m)</th><th>Temp (C)</th>"
-        "<th>Feels Like (C)</th><th>Wind (km/h)</th><th>Gust (km/h)</th><th>Direction</th>"
-        "<th>Clouds (%)</th><th>Precip (mm)</th><th>Rain Chance (%)</th>"
-        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
-    )
-
-
-def _key_moments_grid(rows: list[dict[str, object]]) -> str:
-    if not rows:
-        return '<div class="empty-state">No forecast highlights available.</div>'
-
-    items: list[tuple[str, str, str]] = []
-    for row in rows:
-        label = str(row.get("label") or row.get("kind") or "Moment")
-        timestamp = _format_compact_timestamp(
-            row.get("timestamp"),
-            default=str(row.get("timestamp", "")),
-        )
-        details = " • ".join(
-            [
-                f"{float(row.get('distance_km', 0.0) or 0.0):.2f} km",
-                f"{float(row.get('temperature_c', 0.0) or 0.0):.1f}C",
-                f"{float(row.get('wind_kph', 0.0) or 0.0):.1f} km/h wind",
-                f"{float(row.get('precipitation_mm', 0.0) or 0.0):.2f} mm rain",
-                _format_probability_label(row.get("precipitation_probability")),
-            ]
-        )
-        items.append((label, timestamp, details))
-    return f'<div class="metric-grid">{_render_metric_cards(items)}</div>'
-
-
 def _comparison_coverage_label(coverage: dict[str, object]) -> str:
     return " | ".join(
         [
@@ -537,65 +474,6 @@ def _comparison_summary_table(
         "<th>Estimated Rain</th><th>Wettest Segment</th><th>Coverage</th><th>Notes</th>"
         "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table></div>"
     )
-
-
-def _comparison_key_moment_cards(
-    providers: list[dict[str, object]],
-    *,
-    color_lookup: dict[str, str],
-) -> str:
-    if not providers:
-        return '<div class="empty-state">No provider comparison data available.</div>'
-
-    cards: list[str] = []
-    for provider in providers:
-        provider_id = str(provider.get("provider_id") or "").strip()
-        label = str(provider.get("label") or provider_id or "Provider")
-        color = color_lookup.get(provider_id, _provider_color(provider_id))
-        key_moments = provider.get("key_moments")
-        if not isinstance(key_moments, list):
-            key_moments = []
-        rows: list[str] = []
-        for moment in key_moments:
-            if not isinstance(moment, dict):
-                continue
-            timestamp = _format_compact_timestamp(
-                moment.get("timestamp"),
-                default=str(moment.get("timestamp", "")),
-            )
-            details = " • ".join(
-                [
-                    f"{float(moment.get('temperature_c', 0.0) or 0.0):.1f}C",
-                    f"{float(moment.get('wind_kph', 0.0) or 0.0):.1f} km/h wind",
-                    f"{float(moment.get('precipitation_mm', 0.0) or 0.0):.2f} mm rain",
-                    _format_probability_label(moment.get("precipitation_probability")),
-                ]
-            )
-            rows.append(
-                "".join(
-                    [
-                        '<div class="metric-row">',
-                        f"<strong>{html.escape(str(moment.get('label') or moment.get('kind') or 'Moment'))}</strong>",
-                        f"<div>{html.escape(timestamp)}</div>",
-                        f'<div class="card-meta">{html.escape(details)}</div>',
-                        "</div>",
-                    ]
-                )
-            )
-        cards.append(
-            f"""
-            <article class="panel">
-              <div class="panel-head">
-                <h3>{_provider_label_markup(label, color)}</h3>
-                <span class="pill">{html.escape(provider_id)}</span>
-              </div>
-              <div class="section-stack">
-                {"".join(rows) or '<div class="empty-state">No key moments available.</div>'}
-              </div>
-            </article>
-            """
-        )
-    return '<div class="section-stack">' + "".join(cards) + "</div>"
 
 
 def _comparison_warning_notice(warnings: list[str]) -> str:
@@ -1263,15 +1141,6 @@ def _comparison_section(snapshot: dict[str, object]) -> str:
         {warning_notice}
         {_comparison_summary_table(available_comparisons, color_lookup=color_lookup)}
       </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Provider Key Moments</h2>
-          <span class="pill">Cross-source checkpoints</span>
-        </div>
-        <p class="section-caption">Start, coldest, windiest, wettest, and finish checkpoints shown provider by provider for quick comparison.</p>
-        {_comparison_key_moment_cards(available_comparisons, color_lookup=color_lookup)}
-      </section>
     """
 
 
@@ -1286,12 +1155,6 @@ def render_forecast_html(
     summary = snapshot.get("summary", {})
     if not isinstance(summary, dict):
         summary = {}
-    key_moments = snapshot.get("key_moments", [])
-    if not isinstance(key_moments, list):
-        key_moments = []
-    sample_rows = snapshot.get("sample_rows", [])
-    if not isinstance(sample_rows, list):
-        sample_rows = []
     chart_data = snapshot.get("chart_data", {})
     if not isinstance(chart_data, dict):
         chart_data = {}
@@ -1388,24 +1251,6 @@ def render_forecast_html(
         </div>
         <p class="section-caption">The full rendered route forecast chart preserved as a static image for quick sharing.</p>
         <div class="chart-frame"><img src="{png_href}" alt="Forecast chart for {html.escape(title)}"></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Key Moments</h2>
-          <span class="pill">Fast route scan</span>
-        </div>
-        <p class="section-caption">Five fixed checkpoints pulled from the aligned route samples so the main swings in temperature, wind, and rain are easy to scan.</p>
-        {_key_moments_grid(key_moments)}
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Route Timeline</h2>
-          <span class="pill">Per-sample weather values</span>
-        </div>
-        <p class="section-caption">Aligned weather samples across the route timeline, formatted for quick scanning on desktop and mobile.</p>
-        {_sample_rows_table(sample_rows)}
       </section>
     </section>
     """
