@@ -84,6 +84,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Forecast Overview", html)
             self.assertNotIn("<h2>Key Moments</h2>", html)
             self.assertNotIn("<h2>Route Timeline</h2>", html)
+            self.assertNotIn("route timeline below", html)
             self.assertIn("Temperature", html)
             self.assertIn("Feels Like", html)
             self.assertIn("Precipitation", html)
@@ -98,6 +99,11 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn(UPLOT_CSS_INTEGRITY, html)
             self.assertIn(UPLOT_JS_INTEGRITY, html)
             self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
+            self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", html)
+            self.assertIn("space: 120", html)
+            self.assertIn("size: 78", html)
+            self.assertIn("Wind (km/h)", html)
+            self.assertIn("function axisValueLabel(metricId, value)", html)
             self.assertIn("Interactive charts need JavaScript enabled.", html)
             self.assertIn("Interactive charts could not load.", html)
             self.assertIn("Published Mar 27, 2026 at 12:30 UTC", html)
@@ -264,9 +270,13 @@ class ForecastBundleTests(unittest.TestCase):
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Provider Comparison", html)
             self.assertNotIn("Provider Key Moments", html)
+            self.assertNotIn("route timeline below", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
             self.assertIn("Forecast Charts", html)
+            self.assertIn("hour12: false", html)
+            self.assertIn("size: 64", html)
+            self.assertIn("Values shown in km/h.", html)
 
     def test_generate_forecast_assets_skips_short_horizon_comparison_provider(
         self,
