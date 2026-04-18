@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 from trailintel.forecast.engine import select_wettest_sample, summarize_report
+from trailintel.forecast.map_tiles import ATTRIBUTION as MAP_ATTRIBUTION
+from trailintel.forecast.map_tiles import TILE_URL as MAP_TILE_URL
 from trailintel.forecast.weather import provider_definition
 from trailintel.github_pipeline import normalize_slug_text
 from trailintel.site import (
@@ -43,10 +45,28 @@ UPLOT_JS_INTEGRITY = (
 UPLOT_CSS_INTEGRITY = (
     "sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE"
 )
+LEAFLET_VERSION = "1.9.4"
+LEAFLET_JS_URL = (
+    f"https://cdn.jsdelivr.net/npm/leaflet@{LEAFLET_VERSION}/dist/leaflet.js"
+)
+LEAFLET_CSS_URL = (
+    f"https://cdn.jsdelivr.net/npm/leaflet@{LEAFLET_VERSION}/dist/leaflet.css"
+)
+LEAFLET_JS_INTEGRITY = (
+    "sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH"
+)
+LEAFLET_CSS_INTEGRITY = (
+    "sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H"
+)
 FORECAST_CHART_DATA_ID = "forecast-chart-data"
 FORECAST_CHARTS_SECTION_ID = "forecast-charts"
 FORECAST_CHARTS_FALLBACK_ID = "forecast-charts-fallback"
 FORECAST_CHART_HOVER_ID = "forecast-chart-hover"
+FORECAST_ROUTE_MAP_DATA_ID = "forecast-route-map-data"
+FORECAST_ROUTE_MAP_ID = "forecast-route-map"
+FORECAST_ROUTE_MAP_NOTE_ID = "forecast-route-map-note"
+FORECAST_ROUTE_MAP_STAGE_ID = "forecast-route-map-stage"
+FORECAST_ROUTE_MAP_FALLBACK_ID = "forecast-route-map-fallback"
 PROVIDER_COLORS = {
     "open-meteo": "#0e5b85",
     "met-no": "#1c7c63",
@@ -181,6 +201,43 @@ def _build_sample_rows(report: ForecastReport) -> list[dict[str, object]]:
     return rows
 
 
+def _downsample_route_points(
+    report: ForecastReport,
+    *,
+    max_points: int = 600,
+) -> list[dict[str, float]]:
+    points = list(report.route.points)
+    if len(points) <= max_points:
+        selected = points
+    else:
+        step = (len(points) - 1) / max(max_points - 1, 1)
+        selected_indexes = {0, len(points) - 1}
+        for slot in range(1, max_points - 1):
+            selected_indexes.add(min(len(points) - 1, round(slot * step)))
+        selected = [points[index] for index in sorted(selected_indexes)]
+    return [
+        {
+            "lat": round(point.lat, 6),
+            "lon": round(point.lon, 6),
+        }
+        for point in selected
+    ]
+
+
+def _build_route_map_data(report: ForecastReport) -> dict[str, object]:
+    bounds = report.route.bounds
+    return {
+        "bounds": {
+            "min_lat": round(bounds.min_lat, 6),
+            "max_lat": round(bounds.max_lat, 6),
+            "min_lon": round(bounds.min_lon, 6),
+            "max_lon": round(bounds.max_lon, 6),
+        },
+        "points": _downsample_route_points(report),
+        "attribution": MAP_ATTRIBUTION,
+    }
+
+
 def _build_chart_provider_samples(report: ForecastReport) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for sample in report.samples:
@@ -283,6 +340,7 @@ def build_forecast_snapshot(
         },
         "key_moments": _build_key_moments(report),
         "sample_rows": _build_sample_rows(report),
+        "route_map": _build_route_map_data(report),
         "chart_data": _build_chart_data(
             report,
             comparison_reports=comparison_reports,
@@ -594,8 +652,58 @@ def _render_chart_section(chart_data: dict[str, object]) -> str:
 
 def _render_forecast_head_extras() -> str:
     return f"""
+  <link rel="stylesheet" href="{LEAFLET_CSS_URL}" integrity="{LEAFLET_CSS_INTEGRITY}" crossorigin="anonymous">
   <link rel="stylesheet" href="{UPLOT_CSS_URL}" integrity="{UPLOT_CSS_INTEGRITY}" crossorigin="anonymous">
   <style>
+    .forecast-map-stage {{
+      display: grid;
+      overflow: hidden;
+      min-height: 360px;
+      margin-top: 18px;
+      border-radius: 26px;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.82), transparent 30%),
+        linear-gradient(160deg, rgba(14, 91, 133, 0.14), rgba(242, 104, 42, 0.12));
+    }}
+    .forecast-map-stage > * {{
+      grid-area: 1 / 1;
+    }}
+    .forecast-map-stage.is-live .map-fallback {{
+      display: none;
+    }}
+    .interactive-map,
+    .map-fallback {{
+      width: 100%;
+      min-height: 360px;
+    }}
+    .interactive-map {{
+      background: #e1e8e2;
+    }}
+    .map-fallback {{
+      padding: 10px;
+    }}
+    .route-map {{
+      display: block;
+      width: 100%;
+      height: 100%;
+    }}
+    .map-note {{
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }}
+    .leaflet-container {{
+      font-family: var(--body-font);
+    }}
+    .leaflet-control-attribution {{
+      background: rgba(255, 255, 255, 0.82) !important;
+      backdrop-filter: blur(8px);
+    }}
+    .leaflet-control-attribution a {{
+      color: var(--accent-strong);
+    }}
     .provider-legend {{
       display: flex;
       flex-wrap: wrap;
@@ -701,6 +809,119 @@ def _render_forecast_head_extras() -> str:
 
 def _serialize_script_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _render_route_map_fallback(route_map: dict[str, object]) -> str:
+    points = route_map.get("points")
+    bounds = route_map.get("bounds")
+    if not isinstance(points, list) or not points:
+        return '<div class="empty-state">Route overview unavailable.</div>'
+    if not isinstance(bounds, dict):
+        return '<div class="empty-state">Route overview unavailable.</div>'
+
+    try:
+        min_lon = float(bounds.get("min_lon", 0.0) or 0.0)
+        max_lon = float(bounds.get("max_lon", 0.0) or 0.0)
+        min_lat = float(bounds.get("min_lat", 0.0) or 0.0)
+        max_lat = float(bounds.get("max_lat", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return '<div class="empty-state">Route overview unavailable.</div>'
+
+    width = 620
+    height = 320
+    pad = 28
+    lon_span = max(max_lon - min_lon, 0.0001)
+    lat_span = max(max_lat - min_lat, 0.0001)
+    scale = min((width - pad * 2) / lon_span, (height - pad * 2) / lat_span)
+    draw_width = lon_span * scale
+    draw_height = lat_span * scale
+    origin_x = (width - draw_width) / 2
+    origin_y = (height - draw_height) / 2
+
+    polyline_parts: list[str] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        try:
+            lon = float(point.get("lon", 0.0) or 0.0)
+            lat = float(point.get("lat", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        x = origin_x + (lon - min_lon) * scale
+        y = origin_y + (max_lat - lat) * scale
+        polyline_parts.append(f"{x:.1f},{y:.1f}")
+    if not polyline_parts:
+        return '<div class="empty-state">Route overview unavailable.</div>'
+
+    start_point = next(
+        (point for point in points if isinstance(point, dict)),
+        None,
+    )
+    finish_point = next(
+        (point for point in reversed(points) if isinstance(point, dict)),
+        None,
+    )
+    if start_point is None or finish_point is None:
+        return '<div class="empty-state">Route overview unavailable.</div>'
+
+    start_x = origin_x + (float(start_point["lon"]) - min_lon) * scale
+    start_y = origin_y + (max_lat - float(start_point["lat"])) * scale
+    finish_x = origin_x + (float(finish_point["lon"]) - min_lon) * scale
+    finish_y = origin_y + (max_lat - float(finish_point["lat"])) * scale
+
+    route_polyline = " ".join(polyline_parts)
+    return f"""
+      <svg class="route-map" viewBox="0 0 {width} {height}" role="img" aria-label="Route overview">
+        <defs>
+          <linearGradient id="route-bg" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stop-color="#dff0f8" />
+            <stop offset="100%" stop-color="#f7ead7" />
+          </linearGradient>
+          <linearGradient id="route-line" x1="0%" x2="100%" y1="0%" y2="0%">
+            <stop offset="0%" stop-color="#0e5b85" />
+            <stop offset="100%" stop-color="#f2682a" />
+          </linearGradient>
+        </defs>
+        <rect x="0" y="0" width="{width}" height="{height}" rx="28" fill="url(#route-bg)" />
+        <g opacity="0.5">
+          <circle cx="88" cy="76" r="54" fill="#ffffff" />
+          <circle cx="508" cy="84" r="42" fill="#ffffff" />
+          <path d="M0 284 C102 224 168 228 264 258 C362 288 452 218 620 242 L620 320 L0 320 Z" fill="#d4e6db" />
+        </g>
+        <polyline
+          points="{route_polyline}"
+          fill="none"
+          stroke="url(#route-line)"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="12"
+        />
+        <circle cx="{start_x:.1f}" cy="{start_y:.1f}" r="10" fill="#30a46c" stroke="#ffffff" stroke-width="4" />
+        <circle cx="{finish_x:.1f}" cy="{finish_y:.1f}" r="10" fill="#cf4b2b" stroke="#ffffff" stroke-width="4" />
+      </svg>
+    """
+
+
+def _render_route_map_section(route_map: dict[str, object]) -> str:
+    fallback_markup = _render_route_map_fallback(route_map)
+    route_map_json = _serialize_script_json(route_map)
+    return f"""
+      <section class="panel">
+        <div class="panel-head">
+          <h2>OpenStreetMap Route Box</h2>
+          <span class="pill">Interactive map</span>
+        </div>
+        <p class="section-caption">Pan and zoom the route over a live OpenStreetMap-style basemap. The fallback route overview stays available when tiles cannot load.</p>
+        <div class="forecast-map-stage" id="{FORECAST_ROUTE_MAP_STAGE_ID}">
+          <div id="{FORECAST_ROUTE_MAP_ID}" class="interactive-map" role="img" aria-label="Interactive route map"></div>
+          <div id="{FORECAST_ROUTE_MAP_FALLBACK_ID}" class="map-fallback">
+            {fallback_markup}
+          </div>
+        </div>
+        <p id="{FORECAST_ROUTE_MAP_NOTE_ID}" class="map-note">Loading live basemap tiles and route overlays…</p>
+        <script id="{FORECAST_ROUTE_MAP_DATA_ID}" type="application/json">{route_map_json}</script>
+      </section>
+    """
 
 
 def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
@@ -1132,6 +1353,152 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
       }}
     }})();
   </script>
+    """
+
+
+def _render_forecast_route_map_bootstrap(route_map: dict[str, object]) -> str:
+    map_attribution = json.dumps(
+        str(route_map.get("attribution") or MAP_ATTRIBUTION),
+        ensure_ascii=False,
+    )
+    return f"""
+  <script src="{LEAFLET_JS_URL}" integrity="{LEAFLET_JS_INTEGRITY}" crossorigin="anonymous"></script>
+  <script>
+    (() => {{
+      const stage = document.getElementById("{FORECAST_ROUTE_MAP_STAGE_ID}");
+      const container = document.getElementById("{FORECAST_ROUTE_MAP_ID}");
+      const fallback = document.getElementById("{FORECAST_ROUTE_MAP_FALLBACK_ID}");
+      const note = document.getElementById("{FORECAST_ROUTE_MAP_NOTE_ID}");
+      const payloadEl = document.getElementById("{FORECAST_ROUTE_MAP_DATA_ID}");
+
+      function setFallback(message) {{
+        if (stage) {{
+          stage.classList.remove("is-live");
+        }}
+        if (fallback) {{
+          fallback.hidden = false;
+        }}
+        if (note) {{
+          note.textContent = message;
+        }}
+      }}
+
+      if (!container || !payloadEl) {{
+        return;
+      }}
+      if (typeof window.L !== "object") {{
+        setFallback("Interactive map could not load from the CDN; showing the static route overview instead.");
+        return;
+      }}
+
+      let payload = null;
+      try {{
+        payload = JSON.parse(payloadEl.textContent || "{{}}");
+      }} catch (_error) {{
+        setFallback("Interactive route data could not be parsed; showing the static route overview instead.");
+        return;
+      }}
+
+      if (!Array.isArray(payload?.points) || !payload.points.length || !payload?.bounds) {{
+        setFallback("Interactive route data is unavailable; showing the static route overview instead.");
+        return;
+      }}
+
+      let map = null;
+      try {{
+        map = window.L.map(container, {{
+          zoomControl: true,
+          attributionControl: false,
+        }});
+      }} catch (_error) {{
+        setFallback("Interactive map unavailable; showing the static route overview instead.");
+        return;
+      }}
+
+      window.L.control
+        .attribution({{
+          position: "bottomright",
+          prefix: false,
+        }})
+        .addTo(map)
+        .addAttribution(payload.attribution || {map_attribution});
+
+      map.fitBounds(
+        [
+          [payload.bounds.min_lat, payload.bounds.min_lon],
+          [payload.bounds.max_lat, payload.bounds.max_lon],
+        ],
+        {{ padding: [20, 20] }},
+      );
+
+      const tileLayer = window.L.tileLayer("{MAP_TILE_URL}", {{
+        maxZoom: 18,
+        attribution: payload.attribution || {map_attribution},
+        crossOrigin: true,
+      }}).addTo(map);
+
+      let loadedTileCount = 0;
+      let failedTileCount = 0;
+      let resolved = false;
+      const maybeFallback = (message) => {{
+        if (resolved || loadedTileCount > 0) {{
+          return;
+        }}
+        resolved = true;
+        setFallback(message);
+      }};
+
+      tileLayer.on("tileload", () => {{
+        loadedTileCount += 1;
+        if (!resolved) {{
+          resolved = true;
+          stage?.classList.add("is-live");
+          if (fallback) {{
+            fallback.hidden = true;
+          }}
+          if (note) {{
+            note.textContent = "CARTO Voyager tiles with the route overlay on an OpenStreetMap-style basemap.";
+          }}
+          window.setTimeout(() => map?.invalidateSize(), 0);
+        }}
+      }});
+      tileLayer.on("tileerror", () => {{
+        failedTileCount += 1;
+        if (failedTileCount >= 4) {{
+          maybeFallback("Map tiles were unavailable; showing the static route overview instead.");
+        }}
+      }});
+      window.setTimeout(() => {{
+        maybeFallback("Map tiles did not load in time; showing the static route overview instead.");
+      }}, 3500);
+
+      window.L.polyline(
+        payload.points.map((point) => [point.lat, point.lon]),
+        {{
+          color: "#f2682a",
+          weight: 5,
+          opacity: 0.95,
+        }},
+      ).addTo(map);
+
+      const firstPoint = payload.points[0];
+      const lastPoint = payload.points.at(-1) ?? firstPoint;
+      window.L.circleMarker([firstPoint.lat, firstPoint.lon], {{
+        radius: 8,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: "#30a46c",
+        fillOpacity: 1,
+      }}).addTo(map);
+      window.L.circleMarker([lastPoint.lat, lastPoint.lon], {{
+        radius: 8,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: "#cf4b2b",
+        fillOpacity: 1,
+      }}).addTo(map);
+    }})();
+  </script>
 """
 
 
@@ -1196,6 +1563,9 @@ def render_forecast_html(
     chart_data = snapshot.get("chart_data", {})
     if not isinstance(chart_data, dict):
         chart_data = {}
+    route_map = snapshot.get("route_map", {})
+    if not isinstance(route_map, dict):
+        route_map = {}
 
     start_label = _format_display_datetime(
         snapshot.get("start_time"), default="Start time unavailable"
@@ -1264,6 +1634,7 @@ def render_forecast_html(
     if source_label:
         meta_bits.append(html.escape(source_label))
     comparison_html = _comparison_section(snapshot)
+    route_map_html = _render_route_map_section(route_map)
     chart_section_html = _render_chart_section(chart_data)
     body_html = f"""
     <section class="hero">
@@ -1279,8 +1650,9 @@ def render_forecast_html(
       <div class="metric-grid">{cards}</div>
     </section>
 
-      <section class="section-stack">
+    <section class="section-stack">
       {comparison_html}
+      {route_map_html}
       {chart_section_html}
       <section class="panel">
         <div class="panel-head">
@@ -1301,7 +1673,10 @@ def render_forecast_html(
         forecasts_href="../../index.html",
         body_html=body_html,
         head_extras=_render_forecast_head_extras(),
-        body_end_html=_render_forecast_chart_bootstrap(chart_data),
+        body_end_html=(
+            _render_forecast_route_map_bootstrap(route_map)
+            + _render_forecast_chart_bootstrap(chart_data)
+        ),
     )
 
 

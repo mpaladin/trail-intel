@@ -15,7 +15,11 @@ import {
 import { ForecastInputError, WeatherApiError } from "./lib/forecast/errors";
 import type { BuildForecastResult, ForecastKeyMoment, SampleForecast } from "./lib/forecast/types";
 import { renderReportImageBlob } from "./lib/export/reportImage";
-import { renderPrecipitationChart, renderTemperatureChart, renderWindChart } from "./ui/charts";
+import {
+  mountForecastCharts,
+  renderForecastChartsSection,
+  teardownForecastCharts,
+} from "./ui/charts";
 import { mountForecastMap, renderForecastMapCard, teardownForecastMap } from "./ui/forecastMap";
 
 interface BeforeInstallPromptEvent extends Event {
@@ -331,6 +335,7 @@ function renderReport(): void {
   }
 
   teardownForecastMap();
+  teardownForecastCharts();
 
   if (!state.reportResult) {
     clearExportPreview();
@@ -342,7 +347,7 @@ function renderReport(): void {
           <h2>Your interactive route report will appear here.</h2>
           <p class="section-copy">
             Once you import a GPX and generate a run, the app will show route metrics, key moments,
-            live weather charts, and a sample-by-sample route breakdown.
+            a live OpenStreetMap route box, uPlot forecast charts, and a sample-by-sample route breakdown.
           </p>
         </div>
       </section>
@@ -404,11 +409,7 @@ function renderReport(): void {
       </section>
     </div>
 
-    <section class="chart-grid">
-      ${renderTemperatureChart(report)}
-      ${renderWindChart(report)}
-      ${renderPrecipitationChart(report)}
-    </section>
+    ${renderForecastChartsSection(report)}
 
     <section class="panel export-preview-panel">
       <div class="panel-head">
@@ -442,6 +443,7 @@ function renderReport(): void {
   renderExportState();
   renderExportPreview();
   void mountForecastMap(report);
+  mountForecastCharts(report);
   void ensureExportPreview(state.reportResult);
 }
 

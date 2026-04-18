@@ -29,6 +29,10 @@ from trailintel.forecast.models import (
 )
 from trailintel.forecast.site import (
     FORECAST_CHART_DATA_ID,
+    LEAFLET_CSS_INTEGRITY,
+    LEAFLET_CSS_URL,
+    LEAFLET_JS_INTEGRITY,
+    LEAFLET_JS_URL,
     UPLOT_CSS_INTEGRITY,
     UPLOT_CSS_URL,
     UPLOT_JS_INTEGRITY,
@@ -180,6 +184,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Sample Loop Forecast", html)
             self.assertIn("Route Forecast", html)
             self.assertIn("Forecast Charts", html)
+            self.assertIn("OpenStreetMap Route Box", html)
             self.assertIn("Forecast Overview", html)
             self.assertNotIn("<h2>Key Moments</h2>", html)
             self.assertNotIn("<h2>Route Timeline</h2>", html)
@@ -197,7 +202,13 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn(UPLOT_JS_URL, html)
             self.assertIn(UPLOT_CSS_INTEGRITY, html)
             self.assertIn(UPLOT_JS_INTEGRITY, html)
+            self.assertIn(LEAFLET_CSS_URL, html)
+            self.assertIn(LEAFLET_JS_URL, html)
+            self.assertIn(LEAFLET_CSS_INTEGRITY, html)
+            self.assertIn(LEAFLET_JS_INTEGRITY, html)
             self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
+            self.assertIn('id="forecast-route-map"', html)
+            self.assertIn("Loading live basemap tiles and route overlays", html)
             self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", html)
             self.assertIn("space: 120", html)
             self.assertIn("size: 78", html)
@@ -233,6 +244,11 @@ class ForecastBundleTests(unittest.TestCase):
                 len(chart_data["route_profile"]),
                 snapshot["sample_count"],
             )
+            route_map = snapshot.get("route_map")
+            self.assertIsInstance(route_map, dict)
+            self.assertIn("points", route_map)
+            self.assertIn("bounds", route_map)
+            self.assertGreater(len(route_map["points"]), 1)
 
     def test_generate_forecast_assets_writes_comparison_snapshot_and_html(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -395,6 +411,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Provider Comparison", html)
             self.assertNotIn("Provider Key Moments", html)
             self.assertNotIn("route timeline below", html)
+            self.assertIn("OpenStreetMap Route Box", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
             self.assertIn("Forecast Charts", html)

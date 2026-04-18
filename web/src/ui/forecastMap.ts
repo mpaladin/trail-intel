@@ -14,7 +14,7 @@ export function renderForecastMapCard(report: ForecastReport): string {
       <div class="panel-head">
         <div>
           <p class="section-tag">Route</p>
-          <h2>Overview</h2>
+          <h2>OpenStreetMap Overview</h2>
         </div>
         <p class="section-copy">Pan, zoom, and inspect the route over an OpenStreetMap-style basemap.</p>
       </div>
@@ -24,7 +24,7 @@ export function renderForecastMapCard(report: ForecastReport): string {
           ${renderRouteOverviewFallback(report)}
         </div>
       </div>
-      <p id="forecast-map-note" class="map-note">Loading live basemap tiles and route overlays…</p>
+      <p id="forecast-map-note" class="map-note">Loading OpenStreetMap-style basemap tiles and route overlays…</p>
     </section>
   `;
 }
@@ -39,7 +39,7 @@ export async function mountForecastMap(report: ForecastReport): Promise<void> {
     return;
   }
 
-  note.textContent = "Loading live basemap tiles and route overlays…";
+  note.textContent = "Loading OpenStreetMap-style basemap tiles and route overlays…";
   try {
     activeMap = L.map(container, {
       zoomControl: true,
