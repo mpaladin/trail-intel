@@ -36,9 +36,7 @@ UPLOT_VERSION = "1.6.32"
 UPLOT_JS_URL = (
     f"https://cdn.jsdelivr.net/npm/uplot@{UPLOT_VERSION}/dist/uPlot.iife.min.js"
 )
-UPLOT_CSS_URL = (
-    f"https://cdn.jsdelivr.net/npm/uplot@{UPLOT_VERSION}/dist/uPlot.min.css"
-)
+UPLOT_CSS_URL = f"https://cdn.jsdelivr.net/npm/uplot@{UPLOT_VERSION}/dist/uPlot.min.css"
 UPLOT_JS_INTEGRITY = (
     "sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c"
 )
@@ -148,7 +146,9 @@ def _build_provider_coverage(report: ForecastReport) -> dict[str, object]:
         "has_apparent_temperature": any(
             sample.apparent_temperature_c is not None for sample in report.samples
         ),
-        "has_wind_gust": any(sample.wind_gust_kph is not None for sample in report.samples),
+        "has_wind_gust": any(
+            sample.wind_gust_kph is not None for sample in report.samples
+        ),
         "has_precipitation_probability": any(
             sample.precipitation_probability is not None for sample in report.samples
         ),
@@ -1095,15 +1095,14 @@ def _render_forecast_chart_bootstrap(chart_data: dict[str, object]) -> str:
   </script>
 """
 
+
 def _comparison_section(snapshot: dict[str, object]) -> str:
     comparison = snapshot.get("comparison")
     if not isinstance(comparison, dict):
         return ""
     chart_data = snapshot.get("chart_data")
     color_lookup = (
-        _chart_color_lookup(chart_data)
-        if isinstance(chart_data, dict)
-        else {}
+        _chart_color_lookup(chart_data) if isinstance(chart_data, dict) else {}
     )
     providers = comparison.get("providers")
     if not isinstance(providers, list) or not providers:

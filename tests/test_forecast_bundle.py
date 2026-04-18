@@ -15,8 +15,8 @@ from tests.forecast_test_support import (
     open_meteo_batch_response,
     render_without_real_map,
 )
-from trailintel.forecast.engine import summarize_report
 from trailintel.forecast.bundle import generate_forecast_assets
+from trailintel.forecast.engine import summarize_report
 from trailintel.forecast.models import (
     Bounds,
     ForecastReport,
@@ -386,7 +386,9 @@ class ForecastBundleTests(unittest.TestCase):
 
         chart_data = snapshot.get("chart_data")
         self.assertIsInstance(chart_data, dict)
-        self.assertFalse(chart_data["providers"][0]["coverage"]["has_apparent_temperature"])
+        self.assertFalse(
+            chart_data["providers"][0]["coverage"]["has_apparent_temperature"]
+        )
         self.assertFalse(chart_data["providers"][0]["coverage"]["has_wind_gust"])
 
         html = render_forecast_html(snapshot)
