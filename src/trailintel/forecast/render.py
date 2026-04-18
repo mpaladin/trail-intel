@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import textwrap
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Callable, Sequence
 
 import matplotlib
 
@@ -17,8 +19,10 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
+from trailintel.forecast.engine import ForecastSummary, summarize_report
 from trailintel.forecast.map_tiles import fetch_basemap, lonlat_series_to_web_mercator
-from trailintel.forecast.models import ForecastReport
+from trailintel.forecast.models import ForecastReport, SampleForecast
+from trailintel.forecast.weather import provider_definition
 
 BACKGROUND = "#000000"
 PANEL = "#050505"
@@ -30,20 +34,34 @@ HEADER = "#ff5a24"
 ROUTE = "#ff6124"
 START = "#6fe04d"
 FINISH = "#ff3c2f"
-TEMPERATURE = "#66b9ff"
-FEELS_LIKE = "#ffb03a"
-PROBABILITY = "#73bdf5"
-CLOUD = "#a7abb3"
-INTENSITY = "#ffae38"
-WIND = "#8fc2df"
-GUST = "#ffad2f"
 ELEVATION = "#d1912b"
 TERRAIN_CMAP = LinearSegmentedColormap.from_list(
     "epic_dark_terrain",
     ["#10202b", "#193544", "#21414b", "#28564f", "#1e3f45"],
 )
+PROVIDER_COLORS = {
+    "open-meteo": "#0e5b85",
+    "met-no": "#1c7c63",
+    "weatherapi": "#c45d1c",
+}
+FALLBACK_PROVIDER_COLORS = (
+    "#7d4ec6",
+    "#ac3b61",
+    "#1f7a8c",
+    "#5f6c2f",
+)
 ROUTE_PAD = 0.08
 MAP_ARROW_LENGTH = 0.045
+
+
+@dataclass(frozen=True)
+class RenderedProvider:
+    report: ForecastReport
+    label: str
+    source_label: str
+    color: str
+    summary: ForecastSummary
+    is_primary: bool
 
 
 def render_report(
@@ -51,6 +69,8 @@ def render_report(
     output_path: str | Path,
     *,
     title: str | None = None,
+    comparison_reports: Sequence[ForecastReport] = (),
+    comparison_warnings: Sequence[str] = (),
     use_real_map: bool = True,
 ) -> Path:
     plt.rcParams.update(
@@ -70,38 +90,52 @@ def render_report(
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    fig = plt.figure(figsize=(12, 12), dpi=150, facecolor=BACKGROUND)
+    providers = build_rendered_providers(report, comparison_reports)
+    primary = providers[0]
+
+    fig = plt.figure(figsize=(12, 16), dpi=150, facecolor=BACKGROUND)
     grid = fig.add_gridspec(
-        4,
+        6,
         2,
-        height_ratios=[0.14, 0.26, 0.30, 0.24],
-        width_ratios=[1.08, 1.0],
-        hspace=0.12,
+        height_ratios=[0.16, 0.14, 0.14, 0.14, 0.21, 0.21],
+        width_ratios=[1.04, 1.0],
+        hspace=0.10,
         wspace=0.08,
-        left=0.025,
-        right=0.975,
-        top=0.975,
-        bottom=0.035,
+        left=0.03,
+        right=0.97,
+        top=0.978,
+        bottom=0.03,
     )
 
     header_ax = fig.add_subplot(grid[0, :])
     temperature_panel = fig.add_subplot(grid[1, 0])
-    precipitation_panel = fig.add_subplot(grid[1, 1])
-    map_panel = fig.add_subplot(grid[2:, 0])
-    wind_panel = fig.add_subplot(grid[2, 1])
+    feels_like_panel = fig.add_subplot(grid[1, 1])
+    precipitation_panel = fig.add_subplot(grid[2, 0])
+    cloud_cover_panel = fig.add_subplot(grid[2, 1])
+    wind_panel = fig.add_subplot(grid[3, 0])
     elevation_panel = fig.add_subplot(grid[3, 1])
+    map_panel = fig.add_subplot(grid[4:, 0])
+    summary_panel = fig.add_subplot(grid[4:, 1])
 
-    render_header(header_ax, report, title=title)
-    render_temperature_panel(temperature_panel, report)
-    render_precipitation_panel(precipitation_panel, report)
-    render_wind_direction_panel(map_panel, report, use_real_map=use_real_map)
-    render_wind_panel(wind_panel, report)
-    render_elevation_panel(elevation_panel, report)
+    render_header(header_ax, primary.report, providers, title=title)
+    render_temperature_panel(temperature_panel, providers)
+    render_feels_like_panel(feels_like_panel, providers)
+    render_precipitation_panel(precipitation_panel, providers)
+    render_cloud_cover_panel(cloud_cover_panel, providers)
+    render_wind_panel(wind_panel, providers)
+    render_elevation_panel(elevation_panel, primary.report)
+    render_wind_direction_panel(
+        map_panel,
+        primary.report,
+        provider_label=primary.label,
+        use_real_map=use_real_map,
+    )
+    render_provider_summary_panel(summary_panel, providers, comparison_warnings)
 
     fig.text(
         0.5,
         0.012,
-        (f"Created with TrailIntel Forecast  •  Source: {report.source_label}"),
+        build_footer_text(providers),
         ha="center",
         va="bottom",
         fontsize=9,
@@ -113,16 +147,52 @@ def render_report(
     return output
 
 
-def render_header(axis, report: ForecastReport, *, title: str | None = None) -> None:
+def build_rendered_providers(
+    report: ForecastReport,
+    comparison_reports: Sequence[ForecastReport],
+) -> list[RenderedProvider]:
+    rendered: list[RenderedProvider] = []
+    for index, current in enumerate([report, *comparison_reports]):
+        definition = provider_definition(current.provider_id)
+        rendered.append(
+            RenderedProvider(
+                report=current,
+                label=definition.label,
+                source_label=current.source_label,
+                color=provider_color(current.provider_id),
+                summary=summarize_report(current),
+                is_primary=index == 0,
+            )
+        )
+    return rendered
+
+
+def provider_color(provider_id: str) -> str:
+    if provider_id in PROVIDER_COLORS:
+        return PROVIDER_COLORS[provider_id]
+    fallback_index = sum(ord(char) for char in provider_id) % len(
+        FALLBACK_PROVIDER_COLORS
+    )
+    return FALLBACK_PROVIDER_COLORS[fallback_index]
+
+
+def render_header(
+    axis,
+    report: ForecastReport,
+    providers: Sequence[RenderedProvider],
+    *,
+    title: str | None = None,
+) -> None:
     axis.set_facecolor(HEADER)
     axis.set_xticks([])
     axis.set_yticks([])
     for spine in axis.spines.values():
         spine.set_visible(False)
+
     title_lines = wrap_header_title(title)
     axis.text(
         0.5,
-        0.62,
+        0.72,
         "\n".join(title_lines),
         transform=axis.transAxes,
         ha="center",
@@ -134,7 +204,7 @@ def render_header(axis, report: ForecastReport, *, title: str | None = None) -> 
     )
     axis.text(
         0.5,
-        0.20,
+        0.42,
         format_header_datetime(report.start_time),
         transform=axis.transAxes,
         ha="center",
@@ -142,130 +212,230 @@ def render_header(axis, report: ForecastReport, *, title: str | None = None) -> 
         fontsize=12,
         color="white",
     )
+    descriptor = (
+        "Primary provider highlighted across multi-source comparison charts"
+        if len(providers) > 1
+        else "Single-provider forecast dashboard"
+    )
+    axis.text(
+        0.5,
+        0.24,
+        descriptor,
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontsize=10,
+        color="white",
+        alpha=0.92,
+    )
+    add_global_provider_legend(axis, providers)
 
 
-def render_temperature_panel(axis, report: ForecastReport) -> None:
-    prepare_panel(axis, "Temperature")
-    plot_ax = axis.inset_axes([0.085, 0.23, 0.86, 0.58])
+def add_global_provider_legend(axis, providers: Sequence[RenderedProvider]) -> None:
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            color=item.color,
+            linewidth=3.0 if item.is_primary else 2.0,
+            label=(f"{item.label} (primary)" if item.is_primary else item.label),
+        )
+        for item in providers
+    ]
+    legend = axis.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.02),
+        ncol=min(3, len(handles)),
+        frameon=False,
+        fontsize=10,
+        handlelength=2.2,
+        handletextpad=0.6,
+        columnspacing=1.4,
+    )
+    for text in legend.get_texts():
+        text.set_color("white")
+
+
+def render_temperature_panel(axis, providers: Sequence[RenderedProvider]) -> None:
+    render_provider_overlay_panel(
+        axis,
+        providers,
+        title="Temperature (°C)",
+        extractor=lambda sample: sample.temperature_c,
+        limits_fn=lambda series: padded_limits(flatten_series(series), pad=1.5),
+        primary_fill=True,
+    )
+
+
+def render_feels_like_panel(axis, providers: Sequence[RenderedProvider]) -> None:
+    render_provider_overlay_panel(
+        axis,
+        providers,
+        title="Feels Like (°C)",
+        extractor=lambda sample: sample.apparent_temperature_c,
+        limits_fn=lambda series: padded_limits(flatten_series(series), pad=1.5),
+        empty_message="No apparent-temperature comparison data is available.",
+    )
+
+
+def render_precipitation_panel(axis, providers: Sequence[RenderedProvider]) -> None:
+    render_provider_overlay_panel(
+        axis,
+        providers,
+        title="Precipitation (mm)",
+        extractor=lambda sample: sample.precipitation_mm,
+        limits_fn=lambda series: (0.0, precipitation_axis_ceiling(flatten_series(series))),
+        primary_fill=True,
+    )
+
+
+def render_cloud_cover_panel(axis, providers: Sequence[RenderedProvider]) -> None:
+    render_provider_overlay_panel(
+        axis,
+        providers,
+        title="Cloud Cover (%)",
+        extractor=lambda sample: sample.cloud_cover_pct,
+        limits_fn=lambda _series: (0.0, 100.0),
+        fixed_yticks=[0, 25, 50, 75, 100],
+    )
+
+
+def render_wind_panel(axis, providers: Sequence[RenderedProvider]) -> None:
+    render_provider_overlay_panel(
+        axis,
+        providers,
+        title="Wind (km/h)",
+        extractor=lambda sample: sample.wind_kph,
+        limits_fn=lambda series: wind_limits(flatten_series(series)),
+        note_text="Sustained wind only; gusts appear in the provider summary.",
+        primary_fill=True,
+    )
+
+
+def render_provider_overlay_panel(
+    axis,
+    providers: Sequence[RenderedProvider],
+    *,
+    title: str,
+    extractor: Callable[[SampleForecast], float | None],
+    limits_fn: Callable[[list[np.ndarray]], tuple[float, float]],
+    note_text: str | None = None,
+    primary_fill: bool = False,
+    fixed_yticks: Sequence[float] | None = None,
+    empty_message: str = "No comparison data is available for this metric.",
+) -> None:
+    prepare_panel(axis, title)
+    plot_ax = axis.inset_axes([0.08, 0.22, 0.86, 0.60])
+
+    primary_timestamps = display_timestamps(providers[0].report)
+    series_entries: list[tuple[RenderedProvider, list[datetime], np.ndarray]] = []
+    unavailable_labels: list[str] = []
+    for provider in providers:
+        values = optional_series([extractor(sample) for sample in provider.report.samples])
+        if not series_has_values(values):
+            unavailable_labels.append(provider.label)
+            continue
+        series_entries.append((provider, display_timestamps(provider.report), values))
+
+    if not series_entries:
+        render_empty_panel_message(axis, empty_message)
+        return
+
+    baseline, ceiling = limits_fn([values for _, _, values in series_entries])
+    if primary_fill:
+        primary_series = next(
+            values
+            for provider, _, values in series_entries
+            if provider.is_primary
+        )
+        plot_ax.fill_between(
+            primary_timestamps,
+            baseline,
+            primary_series,
+            color=providers[0].color,
+            alpha=0.14,
+            zorder=1,
+        )
+
+    for provider, timestamps, values in sorted(
+        series_entries,
+        key=lambda item: item[0].is_primary,
+    ):
+        plot_ax.plot(
+            timestamps,
+            values,
+            color=provider.color,
+            linewidth=2.5 if provider.is_primary else 1.45,
+            alpha=1.0 if provider.is_primary else 0.92,
+            zorder=4 if provider.is_primary else 3,
+        )
+
+    style_chart_axis(plot_ax, primary_timestamps)
+    plot_ax.set_ylim(baseline, ceiling)
+    if fixed_yticks is not None:
+        plot_ax.set_yticks(list(fixed_yticks))
+
+    notes: list[str] = []
+    if note_text:
+        notes.append(note_text)
+    if unavailable_labels:
+        notes.append(f"Unavailable from: {', '.join(unavailable_labels)}")
+    if notes:
+        add_panel_note(axis, "  ".join(notes))
+
+
+def render_elevation_panel(axis, report: ForecastReport) -> None:
+    prepare_panel(axis, "Elevation (m)", subtitle="Shared route profile across providers")
+    plot_ax = axis.inset_axes([0.08, 0.40, 0.84, 0.42])
 
     timestamps = display_timestamps(report)
-    temperature = np.array(
-        [sample.temperature_c for sample in report.samples], dtype=float
+    elevation = np.array(
+        [
+            sample.sample.elevation_m
+            if sample.sample.elevation_m is not None
+            else np.nan
+            for sample in report.samples
+        ],
+        dtype=float,
     )
-    apparent = optional_series(
-        [sample.apparent_temperature_c for sample in report.samples]
-    )
-    has_apparent = series_has_values(apparent)
+    if np.all(np.isnan(elevation)):
+        elevation = np.zeros(len(report.samples), dtype=float)
 
-    limit_values = [temperature]
-    if has_apparent:
-        limit_values.append(apparent[~np.isnan(apparent)])
-    baseline, ceiling = padded_limits(np.concatenate(limit_values), pad=1.5)
-    fill_top = np.fmax(temperature, np.nan_to_num(apparent, nan=temperature))
+    baseline = math.floor(float(np.nanmin(elevation)) / 100) * 100
+    ceiling = math.ceil(float(np.nanmax(elevation)) / 100) * 100
+    if ceiling <= baseline:
+        ceiling = baseline + 100
+
     plot_ax.fill_between(
-        timestamps,
-        baseline,
-        fill_top,
-        color="#8a6a2f",
-        alpha=0.42,
-        zorder=1,
+        timestamps, baseline, elevation, color="#7e551a", alpha=0.48, zorder=1
     )
-    plot_ax.plot(timestamps, temperature, color=TEMPERATURE, linewidth=1.4, zorder=3)
-    if has_apparent:
-        plot_ax.plot(timestamps, apparent, color=FEELS_LIKE, linewidth=1.1, zorder=4)
+    plot_ax.plot(timestamps, elevation, color=ELEVATION, linewidth=1.25, zorder=3)
 
     style_chart_axis(plot_ax, timestamps)
     plot_ax.set_ylim(baseline, ceiling)
-    legend_items = [("Temperature (°C)", TEMPERATURE)]
-    if has_apparent:
-        legend_items.append(("Feels Like (°C)", FEELS_LIKE))
-    add_line_legend(
-        axis,
-        legend_items,
-    )
 
-
-def render_precipitation_panel(axis, report: ForecastReport) -> None:
-    prepare_panel(axis, "Precipitation and Cloud Cover")
-    plot_ax = axis.inset_axes([0.08, 0.19, 0.68, 0.60])
-
-    timestamps = display_timestamps(report)
-    probability = optional_series(
-        [sample.precipitation_probability for sample in report.samples]
+    avg_speed = average_speed_kph(report)
+    axis.text(
+        0.05,
+        0.22,
+        f"Elevation gain: {report.route.total_ascent_m:,.0f} m",
+        ha="left",
+        va="center",
+        fontsize=10,
+        color=MUTED,
     )
-    has_probability = series_has_values(probability)
-    cloud_cover = np.array(
-        [sample.cloud_cover_pct for sample in report.samples],
-        dtype=float,
-    )
-    precipitation = np.array(
-        [sample.precipitation_mm for sample in report.samples],
-        dtype=float,
-    )
-
-    plot_ax.fill_between(timestamps, 0, cloud_cover, color=CLOUD, alpha=0.22, zorder=1)
-    plot_ax.plot(timestamps, cloud_cover, color=CLOUD, linewidth=1.0, zorder=2)
-    if has_probability:
-        plot_ax.plot(
-            timestamps, probability, color=PROBABILITY, linewidth=1.1, zorder=3
-        )
-        plot_ax.fill_between(
-            timestamps, 0, probability, color=PROBABILITY, alpha=0.08, zorder=2
-        )
-
-    precipitation_ax = plot_ax.twinx()
-    precipitation_ax.fill_between(
-        timestamps,
-        0,
-        precipitation,
-        color=INTENSITY,
-        alpha=0.24,
-        zorder=1,
-    )
-    precipitation_ax.plot(
-        timestamps,
-        precipitation,
-        color=INTENSITY,
-        linewidth=1.15,
-        zorder=4,
-    )
-
-    style_chart_axis(plot_ax, timestamps)
-    plot_ax.set_ylim(0, 100)
-    plot_ax.set_yticks([0, 20, 40, 60, 80, 100])
-    plot_ax.tick_params(axis="y", right=False, labelright=False)
-    plot_ax.spines["right"].set_visible(False)
-
-    precipitation_ax.set_ylim(0, precipitation_axis_ceiling(precipitation))
-    precipitation_ax.yaxis.set_major_locator(MaxNLocator(nbins=4))
-    precipitation_ax.tick_params(
-        axis="y",
-        left=False,
-        labelleft=False,
-        right=True,
-        labelright=True,
-        colors=MUTED,
-        labelsize=8,
-        length=0,
-        pad=6,
-    )
-    precipitation_ax.spines["right"].set_color(PANEL_EDGE)
-    precipitation_ax.spines["top"].set_visible(False)
-    precipitation_ax.spines["left"].set_visible(False)
-    precipitation_ax.grid(False)
-
-    legend_items: list[tuple[str, str]] = []
-    if has_probability:
-        legend_items.append(("Rain Chance (%)", PROBABILITY))
-    legend_items.extend(
-        [
-            ("Cloud Cover (%)", CLOUD),
-            ("Rain (mm)", INTENSITY),
-        ]
-    )
-    add_line_legend(
-        axis,
-        legend_items,
+    axis.text(
+        0.05,
+        0.10,
+        (
+            f"Distance: {report.route.total_distance_m / 1000:.1f} km"
+            f"   Average speed: {avg_speed:.1f} km/h"
+        ),
+        ha="left",
+        va="center",
+        fontsize=10,
+        color=MUTED,
     )
 
 
@@ -273,10 +443,11 @@ def render_wind_direction_panel(
     axis,
     report: ForecastReport,
     *,
+    provider_label: str,
     use_real_map: bool,
 ) -> None:
-    prepare_panel(axis, "Wind Direction")
-    map_ax = axis.inset_axes([0.04, 0.06, 0.92, 0.86])
+    prepare_panel(axis, "Wind Direction", subtitle=f"{provider_label} only")
+    map_ax = axis.inset_axes([0.04, 0.08, 0.92, 0.80])
     map_ax.set_facecolor("#0b1318")
     map_ax.set_xticks([])
     map_ax.set_yticks([])
@@ -376,101 +547,137 @@ def render_wind_direction_panel(
             },
             zorder=10,
         )
-
-
-def render_wind_panel(axis, report: ForecastReport) -> None:
-    prepare_panel(axis, "Wind")
-    plot_ax = axis.inset_axes([0.08, 0.23, 0.84, 0.58])
-
-    timestamps = display_timestamps(report)
-    wind = np.array([sample.wind_kph for sample in report.samples], dtype=float)
-    gust = optional_series([sample.wind_gust_kph for sample in report.samples])
-    has_gust = series_has_values(gust)
-
-    baseline_source = wind
-    ceiling_source = wind
-    if has_gust:
-        baseline_source = np.concatenate([wind, gust[~np.isnan(gust)]])
-        ceiling_source = baseline_source
-    baseline = max(0.0, math.floor(float(np.nanmin(baseline_source)) - 1))
-    ceiling = math.ceil(float(np.nanmax(ceiling_source)) + 1)
-    if has_gust:
-        plot_ax.fill_between(
-            timestamps, baseline, gust, color="#8c5d17", alpha=0.35, zorder=1
-        )
-    plot_ax.fill_between(
-        timestamps, baseline, wind, color="#72808a", alpha=0.22, zorder=2
-    )
-    plot_ax.plot(timestamps, wind, color=WIND, linewidth=1.1, zorder=3)
-    if has_gust:
-        plot_ax.plot(timestamps, gust, color=GUST, linewidth=1.0, zorder=4)
-
-    style_chart_axis(plot_ax, timestamps)
-    plot_ax.set_ylim(baseline, ceiling)
-    legend_items = [("Wind (km/h)", WIND)]
-    if has_gust:
-        legend_items.append(("Wind Gust (km/h)", GUST))
-    add_line_legend(
+    add_panel_note(
         axis,
-        legend_items,
+        "Route and wind-direction arrows use the primary provider only.",
+        y=0.03,
     )
 
 
-def render_elevation_panel(axis, report: ForecastReport) -> None:
-    prepare_panel(axis, "Elevation")
-    plot_ax = axis.inset_axes([0.08, 0.47, 0.84, 0.35])
-
-    timestamps = display_timestamps(report)
-    elevation = np.array(
-        [
-            sample.sample.elevation_m
-            if sample.sample.elevation_m is not None
-            else np.nan
-            for sample in report.samples
-        ],
-        dtype=float,
+def render_provider_summary_panel(
+    axis,
+    providers: Sequence[RenderedProvider],
+    comparison_warnings: Sequence[str],
+) -> None:
+    prepare_panel(
+        axis,
+        "Provider Summary",
+        subtitle="Primary provider emphasized in charts; gust maxima appear here",
     )
-    if np.all(np.isnan(elevation)):
-        elevation = np.zeros(len(report.samples), dtype=float)
 
-    baseline = math.floor(np.nanmin(elevation) / 100) * 100
-    ceiling = math.ceil(np.nanmax(elevation) / 100) * 100
-    if ceiling <= baseline:
-        ceiling = baseline + 100
+    row_top = 0.82
+    row_height = 0.20 if len(providers) <= 2 else 0.17
+    divider_x = (0.05, 0.95)
 
-    plot_ax.fill_between(
-        timestamps, baseline, elevation, color="#7e551a", alpha=0.48, zorder=1
-    )
-    plot_ax.plot(timestamps, elevation, color=ELEVATION, linewidth=1.05, zorder=2)
+    for index, provider in enumerate(providers):
+        y = row_top - index * row_height
+        axis.plot(
+            [0.05, 0.12],
+            [y, y],
+            transform=axis.transAxes,
+            color=provider.color,
+            linewidth=4.2 if provider.is_primary else 3.0,
+            solid_capstyle="round",
+        )
+        axis.text(
+            0.15,
+            y + 0.028,
+            f"{provider.label}{' (primary)' if provider.is_primary else ''}",
+            transform=axis.transAxes,
+            ha="left",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color=TEXT,
+        )
+        axis.text(
+            0.15,
+            y - 0.035,
+            textwrap.fill(build_provider_summary_line(provider), width=44),
+            transform=axis.transAxes,
+            ha="left",
+            va="center",
+            fontsize=9.2,
+            color=MUTED,
+            linespacing=1.35,
+        )
+        if index < len(providers) - 1:
+            axis.plot(
+                list(divider_x),
+                [y - 0.09, y - 0.09],
+                transform=axis.transAxes,
+                color=PANEL_EDGE,
+                linewidth=0.8,
+                alpha=0.8,
+            )
 
-    style_chart_axis(plot_ax, timestamps)
-    plot_ax.set_ylim(baseline, ceiling)
+    if comparison_warnings:
+        warning_y = row_top - len(providers) * row_height - 0.02
+        axis.text(
+            0.05,
+            warning_y,
+            "Skipped comparison sources",
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+            color="#ffba70",
+        )
+        warning_lines = []
+        for warning in comparison_warnings:
+            compact = warning.replace("Skipped comparison provider ", "")
+            warning_lines.append(textwrap.fill(compact, width=46))
+        axis.text(
+            0.05,
+            warning_y - 0.06,
+            "\n\n".join(warning_lines),
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8.8,
+            color="#ffcf9a",
+            linespacing=1.35,
+        )
 
-    avg_speed = average_speed_kph(report)
-    axis.text(
-        0.05,
-        0.23,
-        f"Elevation Gain: {report.route.total_ascent_m:,.0f} m↑",
-        ha="left",
-        va="center",
-        fontsize=11,
-        color=MUTED,
-    )
-    axis.text(
-        0.05,
-        0.10,
+
+def build_provider_summary_line(provider: RenderedProvider) -> str:
+    summary = provider.summary
+    gust_max = max_optional_gust(provider.report)
+    bits = [
         (
-            f"Distance: {report.route.total_distance_m / 1000:.1f} km"
-            f"   Speed: {avg_speed:.1f} km/h"
+            f"Temp {summary.temperature_min_c:.1f}-{summary.temperature_max_c:.1f} C"
         ),
-        ha="left",
+        f"Rain {summary.precipitation_total_mm:.1f} mm",
+        f"Wind {summary.wind_max_kph:.0f} km/h",
+    ]
+    if gust_max is not None:
+        bits.append(f"Gust {gust_max:.0f} km/h")
+    return "   •   ".join(bits)
+
+
+def max_optional_gust(report: ForecastReport) -> float | None:
+    gusts = [sample.wind_gust_kph for sample in report.samples if sample.wind_gust_kph is not None]
+    if not gusts:
+        return None
+    return max(gusts)
+
+
+def render_empty_panel_message(axis, text: str) -> None:
+    axis.text(
+        0.5,
+        0.50,
+        textwrap.fill(text, width=30),
+        transform=axis.transAxes,
+        ha="center",
         va="center",
-        fontsize=11,
+        fontsize=10,
         color=MUTED,
+        linespacing=1.35,
     )
 
 
-def prepare_panel(axis, title: str) -> None:
+def prepare_panel(axis, title: str, *, subtitle: str | None = None) -> None:
     axis.set_facecolor(PANEL)
     axis.set_xticks([])
     axis.set_yticks([])
@@ -483,15 +690,39 @@ def prepare_panel(axis, title: str) -> None:
         title,
         ha="left",
         va="top",
-        fontsize=17,
+        fontsize=16,
         color=TEXT,
+    )
+    if subtitle:
+        axis.text(
+            0.03,
+            0.86,
+            subtitle,
+            ha="left",
+            va="top",
+            fontsize=8.8,
+            color=MUTED,
+        )
+
+
+def add_panel_note(axis, text: str, *, y: float = 0.07) -> None:
+    axis.text(
+        0.03,
+        y,
+        textwrap.fill(text, width=56),
+        transform=axis.transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=8.6,
+        color=MUTED,
+        linespacing=1.3,
     )
 
 
 def style_chart_axis(axis, timestamps: list[datetime]) -> None:
     axis.set_facecolor(PANEL)
     axis.spines["top"].set_color(PANEL_EDGE)
-    axis.spines["right"].set_color(PANEL_EDGE)
+    axis.spines["right"].set_visible(False)
     axis.spines["left"].set_color(PANEL_EDGE)
     axis.spines["bottom"].set_color(PANEL_EDGE)
     axis.grid(True, which="major", color=GRID, alpha=0.52, linewidth=0.6)
@@ -502,7 +733,7 @@ def style_chart_axis(axis, timestamps: list[datetime]) -> None:
         bottom=False,
         labelbottom=False,
         colors=MUTED,
-        labelsize=9,
+        labelsize=8,
         length=0,
         pad=4,
     )
@@ -510,51 +741,20 @@ def style_chart_axis(axis, timestamps: list[datetime]) -> None:
         axis="y",
         left=True,
         labelleft=True,
-        right=True,
-        labelright=True,
+        right=False,
+        labelright=False,
         colors=MUTED,
-        labelsize=9,
+        labelsize=8,
         length=0,
         pad=4,
     )
     axis.yaxis.set_major_locator(MaxNLocator(nbins=4))
-    ticks = choose_time_ticks(timestamps, max_ticks=6)
+    ticks = choose_time_ticks(timestamps, max_ticks=5)
     axis.set_xticks(ticks)
     axis.xaxis.set_major_formatter(
         mdates.DateFormatter("%H:%M", tz=timestamps[0].tzinfo)
     )
     axis.set_xlim(timestamps[0], timestamps[-1])
-
-
-def add_line_legend(axis, items: list[tuple[str, str]]) -> None:
-    if not items:
-        return
-    handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="s",
-            linestyle="None",
-            markerfacecolor=color,
-            markeredgecolor=color,
-            markersize=7,
-            label=label,
-        )
-        for label, color in items
-    ]
-    legend = axis.legend(
-        handles=handles,
-        loc="lower left",
-        bbox_to_anchor=(0.04, 0.03),
-        ncol=min(3, len(handles)),
-        frameon=False,
-        fontsize=9,
-        handlelength=0.8,
-        handletextpad=0.45,
-        columnspacing=1.1,
-    )
-    for text in legend.get_texts():
-        text.set_color(MUTED)
 
 
 def display_timestamps(report: ForecastReport) -> list[datetime]:
@@ -571,6 +771,13 @@ def optional_series(values: list[float | None]) -> np.ndarray:
 
 def series_has_values(values: np.ndarray) -> bool:
     return not np.all(np.isnan(values))
+
+
+def flatten_series(series_list: Sequence[np.ndarray]) -> np.ndarray:
+    arrays = [series[~np.isnan(series)] for series in series_list if series.size]
+    if not arrays:
+        return np.array([0.0], dtype=float)
+    return np.concatenate(arrays)
 
 
 def choose_time_ticks(timestamps: list[datetime], max_ticks: int) -> list[datetime]:
@@ -600,11 +807,24 @@ def precipitation_axis_ceiling(precipitation_mm: np.ndarray) -> float:
     return math.ceil(peak)
 
 
+def wind_limits(winds: np.ndarray) -> tuple[float, float]:
+    baseline = max(0.0, math.floor(float(np.nanmin(winds)) - 1))
+    ceiling = math.ceil(float(np.nanmax(winds)) + 1)
+    if ceiling <= baseline:
+        ceiling = baseline + 2
+    return baseline, ceiling
+
+
 def average_speed_kph(report: ForecastReport) -> float:
     hours = report.duration.total_seconds() / 3600
     if hours <= 0:
         return 0.0
     return (report.route.total_distance_m / 1000) / hours
+
+
+def build_footer_text(providers: Sequence[RenderedProvider]) -> str:
+    labels = "  •  ".join(item.label for item in providers)
+    return f"Created with TrailIntel Forecast  •  Providers: {labels}"
 
 
 def format_header_datetime(value: datetime) -> str:

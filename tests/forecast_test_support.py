@@ -66,10 +66,19 @@ def weatherapi_error_response(
     )
 
 
-def render_without_real_map(report, output_path, *, title=None):
+def render_without_real_map(
+    report,
+    output_path,
+    *,
+    title=None,
+    comparison_reports=(),
+    comparison_warnings=(),
+):
     return original_render_report(
         report,
         output_path,
         title=title,
+        comparison_reports=comparison_reports,
+        comparison_warnings=comparison_warnings,
         use_real_map=False,
     )

@@ -80,11 +80,17 @@ def generate_forecast_assets(
     reports = build_result.reports
     report = reports[0]
     comparison_reports = tuple(reports[1:])
-    image_path = render_report(report, output_path, title=resolved_title)
-    summary = summarize_report(report)
     comparison_warnings = tuple(
         format_comparison_warning(item) for item in build_result.skipped_comparisons
     )
+    image_path = render_report(
+        report,
+        output_path,
+        title=resolved_title,
+        comparison_reports=comparison_reports,
+        comparison_warnings=comparison_warnings,
+    )
+    summary = summarize_report(report)
 
     exported_site_dir: Path | None = None
     snapshot: dict[str, object] | None = None
