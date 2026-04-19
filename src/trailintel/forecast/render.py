@@ -285,7 +285,10 @@ def render_precipitation_panel(axis, providers: Sequence[RenderedProvider]) -> N
         providers,
         title="Precipitation (mm)",
         extractor=lambda sample: sample.precipitation_mm,
-        limits_fn=lambda series: (0.0, precipitation_axis_ceiling(flatten_series(series))),
+        limits_fn=lambda series: (
+            0.0,
+            precipitation_axis_ceiling(flatten_series(series)),
+        ),
         primary_fill=True,
     )
 
@@ -332,7 +335,9 @@ def render_provider_overlay_panel(
     series_entries: list[tuple[RenderedProvider, list[datetime], np.ndarray]] = []
     unavailable_labels: list[str] = []
     for provider in providers:
-        values = optional_series([extractor(sample) for sample in provider.report.samples])
+        values = optional_series(
+            [extractor(sample) for sample in provider.report.samples]
+        )
         if not series_has_values(values):
             unavailable_labels.append(provider.label)
             continue
@@ -345,9 +350,7 @@ def render_provider_overlay_panel(
     baseline, ceiling = limits_fn([values for _, _, values in series_entries])
     if primary_fill:
         primary_series = next(
-            values
-            for provider, _, values in series_entries
-            if provider.is_primary
+            values for provider, _, values in series_entries if provider.is_primary
         )
         plot_ax.fill_between(
             primary_timestamps,
@@ -386,7 +389,9 @@ def render_provider_overlay_panel(
 
 
 def render_elevation_panel(axis, report: ForecastReport) -> None:
-    prepare_panel(axis, "Elevation (m)", subtitle="Shared route profile across providers")
+    prepare_panel(
+        axis, "Elevation (m)", subtitle="Shared route profile across providers"
+    )
     plot_ax = axis.inset_axes([0.08, 0.28, 0.84, 0.40])
 
     timestamps = display_timestamps(report)
@@ -645,9 +650,7 @@ def build_provider_summary_line(provider: RenderedProvider) -> str:
     summary = provider.summary
     gust_max = max_optional_gust(provider.report)
     bits = [
-        (
-            f"Temp {summary.temperature_min_c:.1f}-{summary.temperature_max_c:.1f} C"
-        ),
+        (f"Temp {summary.temperature_min_c:.1f}-{summary.temperature_max_c:.1f} C"),
         f"Rain {summary.precipitation_total_mm:.1f} mm",
         f"Wind {summary.wind_max_kph:.0f} km/h",
     ]
@@ -657,7 +660,11 @@ def build_provider_summary_line(provider: RenderedProvider) -> str:
 
 
 def max_optional_gust(report: ForecastReport) -> float | None:
-    gusts = [sample.wind_gust_kph for sample in report.samples if sample.wind_gust_kph is not None]
+    gusts = [
+        sample.wind_gust_kph
+        for sample in report.samples
+        if sample.wind_gust_kph is not None
+    ]
     if not gusts:
         return None
     return max(gusts)

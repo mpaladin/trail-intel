@@ -97,9 +97,7 @@ def build_render_fixture(
                 ),
                 wind_kph=12.0 + 18.0 * fraction + wind_offset,
                 wind_gust_kph=(
-                    16.0 + 23.0 * fraction + wind_offset
-                    if include_gust
-                    else None
+                    16.0 + 23.0 * fraction + wind_offset if include_gust else None
                 ),
                 wind_direction_deg=(300.0 + 90.0 * fraction) % 360,
                 cloud_cover_pct=min(
