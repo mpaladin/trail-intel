@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import math
 import tempfile
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+from PIL import Image
 
 from tests.forecast_test_support import (
     FIXTURE,
@@ -27,6 +29,10 @@ from trailintel.forecast.models import (
 )
 from trailintel.forecast.site import (
     FORECAST_CHART_DATA_ID,
+    LEAFLET_CSS_INTEGRITY,
+    LEAFLET_CSS_URL,
+    LEAFLET_JS_INTEGRITY,
+    LEAFLET_JS_URL,
     UPLOT_CSS_INTEGRITY,
     UPLOT_CSS_URL,
     UPLOT_JS_INTEGRITY,
@@ -34,6 +40,82 @@ from trailintel.forecast.site import (
     build_forecast_snapshot,
     render_forecast_html,
 )
+from trailintel.forecast.weather import provider_definition
+
+
+def build_render_fixture(
+    sample_count: int,
+    *,
+    provider_id: str = "open-meteo",
+    temperature_offset: float = 0.0,
+    wind_offset: float = 0.0,
+    precip_scale: float = 1.0,
+    include_apparent: bool = True,
+    include_gust: bool = True,
+) -> ForecastReport:
+    start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
+    duration = timedelta(hours=2, minutes=20)
+    route_points = [
+        RoutePoint(lat=47.37, lon=8.54, elevation_m=410.0, distance_m=0.0),
+        RoutePoint(lat=47.38, lon=8.55, elevation_m=440.0, distance_m=6_000.0),
+        RoutePoint(lat=47.39, lon=8.57, elevation_m=510.0, distance_m=14_000.0),
+        RoutePoint(lat=47.40, lon=8.59, elevation_m=470.0, distance_m=22_000.0),
+        RoutePoint(lat=47.41, lon=8.61, elevation_m=450.0, distance_m=31_000.0),
+    ]
+    route = RouteData(
+        points=route_points,
+        total_distance_m=31_000.0,
+        total_ascent_m=140.0,
+        bounds=Bounds(min_lat=47.37, max_lat=47.41, min_lon=8.54, max_lon=8.61),
+    )
+    definition = provider_definition(provider_id)
+    samples: list[SampleForecast] = []
+    for index in range(sample_count):
+        fraction = 0.0 if sample_count <= 1 else index / (sample_count - 1)
+        elapsed = duration * fraction
+        sample = SamplePoint(
+            index=index,
+            fraction=fraction,
+            elapsed=elapsed,
+            timestamp=start + elapsed,
+            lat=47.37 + (0.04 * fraction),
+            lon=8.54 + (0.07 * fraction),
+            elevation_m=410 + 80 * fraction,
+            distance_m=31_000.0 * fraction,
+        )
+        precipitation = (
+            0.0 if index < 4 else min(1.6, 0.2 * (index - 3))
+        ) * precip_scale
+        samples.append(
+            SampleForecast(
+                sample=sample,
+                temperature_c=6.0 + 10.0 * fraction + temperature_offset,
+                apparent_temperature_c=(
+                    5.0 + 11.5 * fraction + temperature_offset
+                    if include_apparent
+                    else None
+                ),
+                wind_kph=12.0 + 18.0 * fraction + wind_offset,
+                wind_gust_kph=(
+                    16.0 + 23.0 * fraction + wind_offset if include_gust else None
+                ),
+                wind_direction_deg=(300.0 + 90.0 * fraction) % 360,
+                cloud_cover_pct=min(
+                    95.0, 25.0 + 55.0 * abs(math.sin(fraction * math.pi))
+                ),
+                precipitation_mm=precipitation,
+                precipitation_probability=min(100.0, 8.0 + 7.0 * index),
+            )
+        )
+    return ForecastReport(
+        provider_id=definition.provider_id,
+        route=route,
+        samples=samples,
+        start_time=start,
+        end_time=start + duration,
+        duration=duration,
+        source_label=definition.source_label,
+    )
 
 
 class ForecastBundleTests(unittest.TestCase):
@@ -46,11 +128,28 @@ class ForecastBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
-            captured_render: dict[str, str | None] = {}
+            captured_render: dict[str, object] = {}
 
-            def capture_render(report, output_path, *, title=None):
+            def capture_render(
+                report,
+                output_path,
+                *,
+                title=None,
+                comparison_reports=(),
+                comparison_warnings=(),
+            ):
                 captured_render["title"] = title
-                return render_without_real_map(report, output_path, title=title)
+                captured_render["comparison_report_ids"] = [
+                    item.provider_id for item in comparison_reports
+                ]
+                captured_render["comparison_warnings"] = list(comparison_warnings)
+                return render_without_real_map(
+                    report,
+                    output_path,
+                    title=title,
+                    comparison_reports=comparison_reports,
+                    comparison_warnings=comparison_warnings,
+                )
 
             with patch(
                 "trailintel.forecast.bundle.render_report",
@@ -75,12 +174,15 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertTrue((site_dir / "snapshot.json").exists())
             self.assertTrue((site_dir / "report-meta.json").exists())
             self.assertEqual(captured_render.get("title"), "Sample Loop Forecast")
+            self.assertEqual(captured_render.get("comparison_report_ids"), [])
+            self.assertEqual(captured_render.get("comparison_warnings"), [])
             self.assertIsNotNone(result.snapshot)
 
             html = (site_dir / "index.html").read_text(encoding="utf-8")
             self.assertIn("Sample Loop Forecast", html)
             self.assertIn("Route Forecast", html)
             self.assertIn("Forecast Charts", html)
+            self.assertIn("OpenStreetMap Route Box", html)
             self.assertIn("Forecast Overview", html)
             self.assertNotIn("<h2>Key Moments</h2>", html)
             self.assertNotIn("<h2>Route Timeline</h2>", html)
@@ -98,7 +200,13 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn(UPLOT_JS_URL, html)
             self.assertIn(UPLOT_CSS_INTEGRITY, html)
             self.assertIn(UPLOT_JS_INTEGRITY, html)
+            self.assertIn(LEAFLET_CSS_URL, html)
+            self.assertIn(LEAFLET_JS_URL, html)
+            self.assertIn(LEAFLET_CSS_INTEGRITY, html)
+            self.assertIn(LEAFLET_JS_INTEGRITY, html)
             self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
+            self.assertIn('id="forecast-route-map"', html)
+            self.assertIn("Loading live basemap tiles and route overlays", html)
             self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", html)
             self.assertIn("space: 120", html)
             self.assertIn("size: 78", html)
@@ -134,6 +242,11 @@ class ForecastBundleTests(unittest.TestCase):
                 len(chart_data["route_profile"]),
                 snapshot["sample_count"],
             )
+            route_map = snapshot.get("route_map")
+            self.assertIsInstance(route_map, dict)
+            self.assertIn("points", route_map)
+            self.assertIn("bounds", route_map)
+            self.assertGreater(len(route_map["points"]), 1)
 
     def test_generate_forecast_assets_writes_comparison_snapshot_and_html(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -216,10 +329,32 @@ class ForecastBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
+            captured_render: dict[str, object] = {}
+
+            def capture_render(
+                report,
+                output_path,
+                *,
+                title=None,
+                comparison_reports=(),
+                comparison_warnings=(),
+            ):
+                captured_render["title"] = title
+                captured_render["comparison_report_ids"] = [
+                    item.provider_id for item in comparison_reports
+                ]
+                captured_render["comparison_warnings"] = list(comparison_warnings)
+                return render_without_real_map(
+                    report,
+                    output_path,
+                    title=title,
+                    comparison_reports=comparison_reports,
+                    comparison_warnings=comparison_warnings,
+                )
 
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_real_map,
+                capture_render,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -236,6 +371,9 @@ class ForecastBundleTests(unittest.TestCase):
                 )
 
             self.assertEqual(len(result.comparison_reports), 1)
+            self.assertEqual(captured_render.get("title"), "Sample Loop Forecast")
+            self.assertEqual(captured_render.get("comparison_report_ids"), ["met-no"])
+            self.assertEqual(captured_render.get("comparison_warnings"), [])
 
             snapshot = json.loads(
                 (site_dir / "snapshot.json").read_text(encoding="utf-8")
@@ -271,6 +409,7 @@ class ForecastBundleTests(unittest.TestCase):
             self.assertIn("Provider Comparison", html)
             self.assertNotIn("Provider Key Moments", html)
             self.assertNotIn("route timeline below", html)
+            self.assertIn("OpenStreetMap Route Box", html)
             self.assertIn("MET Norway (yr.no)", html)
             self.assertIn("Open-Meteo", html)
             self.assertIn("Forecast Charts", html)
@@ -298,10 +437,31 @@ class ForecastBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "forecast.png"
             site_dir = Path(tmp) / "site"
+            captured_render: dict[str, object] = {}
+
+            def capture_render(
+                report,
+                output_path,
+                *,
+                title=None,
+                comparison_reports=(),
+                comparison_warnings=(),
+            ):
+                captured_render["comparison_report_ids"] = [
+                    item.provider_id for item in comparison_reports
+                ]
+                captured_render["comparison_warnings"] = list(comparison_warnings)
+                return render_without_real_map(
+                    report,
+                    output_path,
+                    title=title,
+                    comparison_reports=comparison_reports,
+                    comparison_warnings=comparison_warnings,
+                )
 
             with patch(
                 "trailintel.forecast.bundle.render_report",
-                render_without_real_map,
+                capture_render,
             ):
                 result = generate_forecast_assets(
                     gpx_path=FIXTURE,
@@ -319,6 +479,11 @@ class ForecastBundleTests(unittest.TestCase):
 
             self.assertEqual(result.comparison_reports, ())
             self.assertEqual(len(result.comparison_warnings), 1)
+            self.assertEqual(captured_render.get("comparison_report_ids"), [])
+            self.assertEqual(
+                captured_render.get("comparison_warnings"),
+                [result.comparison_warnings[0]],
+            )
             self.assertIn("WeatherAPI.com", result.comparison_warnings[0])
             self.assertIn("3-day forecast horizon", result.comparison_warnings[0])
 
@@ -408,147 +573,86 @@ class ForecastBundleTests(unittest.TestCase):
         self.assertIn(f'id="{FORECAST_CHART_DATA_ID}"', html)
 
     def test_render_report_handles_sparse_and_dense_routes(self) -> None:
-        import math
-        from datetime import timedelta
-
-        from trailintel.forecast.models import (
-            Bounds,
-            ForecastReport,
-            RouteData,
-            RoutePoint,
-            SampleForecast,
-            SamplePoint,
-        )
         from trailintel.forecast.render import render_report
-
-        def build_render_report(sample_count: int) -> ForecastReport:
-            start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
-            duration = timedelta(hours=2, minutes=20)
-            route_points = [
-                RoutePoint(lat=47.37, lon=8.54, elevation_m=410.0, distance_m=0.0),
-                RoutePoint(lat=47.38, lon=8.55, elevation_m=440.0, distance_m=6_000.0),
-                RoutePoint(lat=47.39, lon=8.57, elevation_m=510.0, distance_m=14_000.0),
-                RoutePoint(lat=47.40, lon=8.59, elevation_m=470.0, distance_m=22_000.0),
-                RoutePoint(lat=47.41, lon=8.61, elevation_m=450.0, distance_m=31_000.0),
-            ]
-            route = RouteData(
-                points=route_points,
-                total_distance_m=31_000.0,
-                total_ascent_m=140.0,
-                bounds=Bounds(min_lat=47.37, max_lat=47.41, min_lon=8.54, max_lon=8.61),
-            )
-            samples: list[SampleForecast] = []
-            for index in range(sample_count):
-                fraction = index / (sample_count - 1)
-                elapsed = duration * fraction
-                sample = SamplePoint(
-                    index=index,
-                    fraction=fraction,
-                    elapsed=elapsed,
-                    timestamp=start + elapsed,
-                    lat=47.37 + (0.04 * fraction),
-                    lon=8.54 + (0.07 * fraction),
-                    elevation_m=410 + 80 * fraction,
-                    distance_m=31_000.0 * fraction,
-                )
-                samples.append(
-                    SampleForecast(
-                        sample=sample,
-                        temperature_c=6.0 + 10.0 * fraction,
-                        apparent_temperature_c=5.0 + 11.5 * fraction,
-                        wind_kph=12.0 + 18.0 * fraction,
-                        wind_gust_kph=16.0 + 23.0 * fraction,
-                        wind_direction_deg=(300.0 + 90.0 * fraction) % 360,
-                        cloud_cover_pct=min(
-                            95.0, 25.0 + 55.0 * abs(math.sin(fraction * math.pi))
-                        ),
-                        precipitation_mm=0.0
-                        if index < 4
-                        else min(1.6, 0.2 * (index - 3)),
-                        precipitation_probability=min(100.0, 8.0 + 7.0 * index),
-                    )
-                )
-            return ForecastReport(
-                provider_id="open-meteo",
-                route=route,
-                samples=samples,
-                start_time=start,
-                end_time=start + duration,
-                duration=duration,
-                source_label="Open-Meteo Forecast API",
-            )
 
         with tempfile.TemporaryDirectory() as tmp:
             for sample_count in (5, 80):
                 output = Path(tmp) / f"render-{sample_count}.png"
                 render_report(
-                    build_render_report(sample_count), output, use_real_map=False
+                    build_render_fixture(sample_count), output, use_real_map=False
                 )
                 self.assertTrue(output.exists())
                 self.assertGreater(output.stat().st_size, 0)
+                with Image.open(output) as image:
+                    self.assertEqual(image.size, (1800, 2700))
 
-    def test_render_report_handles_missing_optional_series(self) -> None:
-        from datetime import timedelta
-
-        from trailintel.forecast.models import (
-            Bounds,
-            ForecastReport,
-            RouteData,
-            RoutePoint,
-            SampleForecast,
-            SamplePoint,
-        )
+    def test_render_report_handles_multi_provider_comparison(self) -> None:
         from trailintel.forecast.render import render_report
 
-        start = datetime(2026, 3, 28, 8, 0, tzinfo=UTC)
-        duration = timedelta(hours=2)
-        route = RouteData(
-            points=[
-                RoutePoint(lat=47.37, lon=8.54, elevation_m=410.0, distance_m=0.0),
-                RoutePoint(lat=47.39, lon=8.57, elevation_m=510.0, distance_m=14_000.0),
-            ],
-            total_distance_m=14_000.0,
-            total_ascent_m=100.0,
-            bounds=Bounds(min_lat=47.37, max_lat=47.39, min_lon=8.54, max_lon=8.57),
+        primary = build_render_fixture(24, provider_id="open-meteo")
+        comparison_reports = (
+            build_render_fixture(
+                24,
+                provider_id="met-no",
+                temperature_offset=-1.0,
+                wind_offset=2.0,
+                precip_scale=1.25,
+                include_apparent=False,
+                include_gust=False,
+            ),
+            build_render_fixture(
+                24,
+                provider_id="weatherapi",
+                temperature_offset=0.8,
+                wind_offset=4.0,
+                precip_scale=0.7,
+            ),
         )
-        samples = [
-            SampleForecast(
-                sample=SamplePoint(
-                    index=index,
-                    fraction=index / 2,
-                    elapsed=timedelta(hours=index),
-                    timestamp=start + timedelta(hours=index),
-                    lat=47.37 + index * 0.01,
-                    lon=8.54 + index * 0.01,
-                    elevation_m=410.0 + index * 30,
-                    distance_m=index * 7_000.0,
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "comparison.png"
+            render_report(
+                primary,
+                output,
+                comparison_reports=comparison_reports,
+                comparison_warnings=(
+                    "Skipped comparison provider Example: unavailable for this run.",
                 ),
-                temperature_c=7.0 + index,
-                apparent_temperature_c=None,
-                wind_kph=12.0 + index,
-                wind_gust_kph=None,
-                wind_direction_deg=270.0 + index * 5,
-                cloud_cover_pct=35.0 + index * 10,
-                precipitation_mm=0.1 * index,
-                precipitation_probability=None,
+                use_real_map=False,
             )
-            for index in range(3)
-        ]
-        report = ForecastReport(
+            self.assertTrue(output.exists())
+            self.assertGreater(output.stat().st_size, 0)
+            with Image.open(output) as image:
+                self.assertEqual(image.size, (1800, 2700))
+
+    def test_render_report_handles_missing_optional_series(self) -> None:
+        from trailintel.forecast.render import render_report
+
+        report = build_render_fixture(
+            12,
             provider_id="met-no",
-            route=route,
-            samples=samples,
-            start_time=start,
-            end_time=start + duration,
-            duration=duration,
-            source_label="MET Norway Locationforecast API (yr.no data)",
+            include_apparent=False,
+            include_gust=False,
+        )
+        comparison = build_render_fixture(
+            12,
+            provider_id="open-meteo",
+            temperature_offset=1.2,
+            wind_offset=3.0,
         )
 
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "missing-optional.png"
-            render_report(report, output, use_real_map=False)
+            render_report(
+                report,
+                output,
+                comparison_reports=(comparison,),
+                use_real_map=False,
+            )
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 0)
+            with Image.open(output) as image:
+                self.assertEqual(image.size, (1800, 2700))
 
 
 if __name__ == "__main__":

@@ -1,16 +1,63 @@
-import { formatDateTime, formatNullableNumber, formatNumber } from "../lib/forecast/format";
-import type { ForecastReport, SampleForecast } from "../lib/forecast/types";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
 
-const CHART_WIDTH = 720;
-const CHART_HEIGHT = 260;
-const PADDING = { top: 18, right: 18, bottom: 36, left: 46 };
+import { formatNumber } from "../lib/forecast/format";
+import type { ForecastReport } from "../lib/forecast/types";
 
-interface LineSeries {
+const CHART_HEIGHT = 300;
+const CHART_MIN_WIDTH = 280;
+const CHART_RESIZE_PADDING = 24;
+const CHART_SYNC_KEY = "trailintel-pwa-forecast-sync";
+const AXIS_LABEL_SPACE = 120;
+
+interface ChartSpec {
+  id: "temperature" | "feels-like" | "precipitation" | "cloud-cover" | "wind" | "elevation";
+  title: string;
+  caption: string;
+}
+
+interface LineSeriesEntry {
   label: string;
   color: string;
   values: Array<number | null>;
-  dashed?: boolean;
 }
+
+const CHART_SPECS: ChartSpec[] = [
+  {
+    id: "temperature",
+    title: "Temperature",
+    caption: "Ambient temperature across the sampled route.",
+  },
+  {
+    id: "feels-like",
+    title: "Feels Like",
+    caption: "Apparent temperature along the route when the metric is available.",
+  },
+  {
+    id: "precipitation",
+    title: "Precipitation",
+    caption: "Estimated precipitation intensity along the sampled route.",
+  },
+  {
+    id: "cloud-cover",
+    title: "Cloud Cover",
+    caption: "Cloud cover percentage at each sampled route point.",
+  },
+  {
+    id: "wind",
+    title: "Wind (km/h)",
+    caption: "Sustained wind speed aligned to the route timeline.",
+  },
+  {
+    id: "elevation",
+    title: "Elevation",
+    caption: "Route profile aligned to the same forecast timeline.",
+  },
+];
+
+let activeCharts: Array<{ chart: uPlot; container: HTMLDivElement }> = [];
+let resizeObserver: ResizeObserver | null = null;
+let activeHoverKey = "";
 
 export function renderRouteOverviewFallback(report: ForecastReport): string {
   const width = 620;
@@ -32,12 +79,6 @@ export function renderRouteOverviewFallback(report: ForecastReport): string {
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
-
-  const markers = markerSamples(report.samples).map((sample) => {
-    const x = originX + (sample.sample.lon - bounds.minLon) * scale;
-    const y = originY + (bounds.maxLat - sample.sample.lat) * scale;
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5.5" fill="#f7efe2" stroke="#0e5b85" stroke-width="2" />`;
-  });
 
   const firstPoint = points[0];
   const lastPoint = points.at(-1) ?? points[0];
@@ -72,247 +113,376 @@ export function renderRouteOverviewFallback(report: ForecastReport): string {
         stroke-linejoin="round"
         stroke-width="12"
       />
-      ${markers.join("")}
       <circle cx="${startX.toFixed(1)}" cy="${startY.toFixed(1)}" r="10" fill="#30a46c" stroke="#ffffff" stroke-width="4" />
       <circle cx="${finishX.toFixed(1)}" cy="${finishY.toFixed(1)}" r="10" fill="#cf4b2b" stroke="#ffffff" stroke-width="4" />
     </svg>
   `;
 }
 
-export function renderRouteOverview(report: ForecastReport): string {
-  return renderRouteOverviewFallback(report);
-}
-
-export function renderTemperatureChart(report: ForecastReport): string {
-  return renderLineChart({
-    title: "Temperature",
-    caption: "Ambient and feels-like temperature across the route.",
-    timezoneName: report.timezoneName,
-    yUnit: "C",
-    series: [
-      {
-        label: "Temperature",
-        color: "#0e5b85",
-        values: report.samples.map((sample) => sample.temperatureC),
-      },
-      {
-        label: "Feels like",
-        color: "#f2682a",
-        values: report.samples.map((sample) => sample.apparentTemperatureC),
-        dashed: true,
-      },
-    ],
-    samples: report.samples,
-  });
-}
-
-export function renderWindChart(report: ForecastReport): string {
-  return renderLineChart({
-    title: "Wind",
-    caption: "Sustained wind and gusts, in km/h.",
-    timezoneName: report.timezoneName,
-    yUnit: "km/h",
-    series: [
-      {
-        label: "Wind",
-        color: "#246a73",
-        values: report.samples.map((sample) => sample.windKph),
-      },
-      {
-        label: "Gusts",
-        color: "#8a4b00",
-        values: report.samples.map((sample) => sample.windGustKph),
-        dashed: true,
-      },
-    ],
-    samples: report.samples,
-  });
-}
-
-export function renderPrecipitationChart(report: ForecastReport): string {
-  const width = CHART_WIDTH;
-  const height = CHART_HEIGHT;
-  const plotWidth = width - PADDING.left - PADDING.right;
-  const plotHeight = height - PADDING.top - PADDING.bottom;
-  const precipitationValues = report.samples.map((sample) => sample.precipitationMm);
-  const cloudValues = report.samples.map((sample) => sample.cloudCoverPct);
-  const chanceValues = report.samples.map((sample) => sample.precipitationProbability ?? 0);
-  const precipitationMax = Math.max(0.4, ...precipitationValues);
-  const labels = buildTimeLabels(report.samples, report.timezoneName);
-
-  const cloudPath = buildPath(cloudValues, plotWidth, plotHeight, 0, 100);
-  const chancePath = buildPath(chanceValues, plotWidth, plotHeight, 0, 100);
-  const bars = precipitationValues
-    .map((value, index) => {
-      const x = PADDING.left + (plotWidth * index) / Math.max(1, precipitationValues.length - 1);
-      const normalized = value / precipitationMax;
-      const barHeight = normalized * (plotHeight * 0.55);
-      const y = PADDING.top + plotHeight - barHeight;
-      return `<rect x="${(x - 8).toFixed(1)}" y="${y.toFixed(1)}" width="16" height="${barHeight.toFixed(1)}" rx="8" fill="#f0b34a" opacity="0.8" />`;
-    })
-    .join("");
-
+export function renderForecastChartsSection(report: ForecastReport): string {
   return `
-    <figure class="chart-frame">
-      <figcaption class="chart-head">
+    <section class="panel chart-panel">
+      <div class="panel-head">
         <div>
-          <h3>Rain and Clouds</h3>
-          <p>Rain amount, rain chance, and cloud cover across the forecast window.</p>
+          <p class="section-tag">Charts</p>
+          <h2>uPlot Forecast Charts</h2>
         </div>
-        <div class="chart-legend">
-          <span><i style="background:#f0b34a"></i>Rain (mm)</span>
-          <span><i style="background:#0e5b85"></i>Rain chance</span>
-          <span><i style="background:#93a7b4"></i>Cloud cover</span>
-        </div>
-      </figcaption>
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Rain and cloud chart">
-        ${gridLines(width, height)}
-        ${axisLabels(labels, precipitationMax, "mm")}
-        ${bars}
-        <path d="${cloudPath}" fill="none" stroke="#93a7b4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-        <path d="${chancePath}" fill="none" stroke="#0e5b85" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <div class="chart-summary">
-        <span>Max rain ${formatNumber(precipitationMax, 1)} mm</span>
-        <span>Peak cloud ${formatNumber(Math.max(...cloudValues), 0)}%</span>
-        <span>Peak rain chance ${formatNumber(Math.max(...chanceValues), 0)}%</span>
+        <span class="pill">${report.sourceLabel}</span>
       </div>
-    </figure>
+      <p class="section-copy">Interactive forecast panels tied to the sampled route timeline.</p>
+      <div id="forecast-chart-hover" class="forecast-chart-hover" aria-live="polite">
+        Hover a chart to inspect that route moment in detail.
+      </div>
+      <div class="forecast-chart-grid">
+        ${CHART_SPECS.map((spec) => renderChartCard(spec)).join("")}
+      </div>
+    </section>
   `;
 }
 
-function renderLineChart(options: {
-  title: string;
-  caption: string;
-  timezoneName: string;
-  yUnit: string;
-  series: LineSeries[];
-  samples: SampleForecast[];
-}): string {
-  const width = CHART_WIDTH;
-  const height = CHART_HEIGHT;
-  const plotWidth = width - PADDING.left - PADDING.right;
-  const plotHeight = height - PADDING.top - PADDING.bottom;
-  const allValues = options.series
-    .flatMap((series) => series.values)
-    .filter((value): value is number => value !== null);
-  const minValue = Math.min(...allValues);
-  const maxValue = Math.max(...allValues);
-  const span = Math.max(maxValue - minValue, 1);
-  const paddedMin = minValue - span * 0.12;
-  const paddedMax = maxValue + span * 0.12;
-  const labels = buildTimeLabels(options.samples, options.timezoneName);
+export function mountForecastCharts(report: ForecastReport): void {
+  teardownForecastCharts();
 
-  const paths = options.series
-    .map((series) => {
-      const path = buildPath(series.values, plotWidth, plotHeight, paddedMin, paddedMax);
-      const dashArray = series.dashed ? ' stroke-dasharray="10 8"' : "";
-      return `<path d="${path}" fill="none" stroke="${series.color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"${dashArray} />`;
-    })
-    .join("");
+  const hover = document.querySelector<HTMLDivElement>("#forecast-chart-hover");
+  const dateFormatter = buildDateFormatter(report.timezoneName);
+  const axisDateFormatter = buildAxisDateFormatter(report.timezoneName);
+  const xValues = report.samples.map((sample) => sample.sample.timestampMs);
 
+  for (const spec of CHART_SPECS) {
+    const container = document.querySelector<HTMLDivElement>(`#chart-${spec.id}`);
+    const note = document.querySelector<HTMLParagraphElement>(`#chart-note-${spec.id}`);
+    if (!container) {
+      continue;
+    }
+
+    if (spec.id === "elevation") {
+      const values = report.samples.map((sample) => sample.sample.elevationM);
+      if (!values.some((value) => value !== null)) {
+        container.innerHTML = '<div class="empty-state">Route elevation is unavailable for this forecast.</div>';
+        if (note) {
+          note.textContent = "Elevation comes from the GPX route profile instead of the forecast provider.";
+        }
+        continue;
+      }
+
+      const seriesEntries: LineSeriesEntry[] = [
+        {
+          label: "Elevation",
+          color: "#8a6a2f",
+          values,
+        },
+      ];
+      const chart = new uPlot(
+        buildOptions(spec, axisDateFormatter, seriesEntries, computeChartWidth(container)),
+        [xValues, values] as uPlot.AlignedData,
+        container,
+      );
+      bindHover(chart, spec, report, hover, seriesEntries, dateFormatter);
+      activeCharts.push({ chart, container });
+      if (note) {
+        note.textContent = "Elevation comes from the GPX route profile and stays aligned with the forecast time axis.";
+      }
+      continue;
+    }
+
+    const seriesEntries = buildMetricSeries(report, spec.id);
+    if (!seriesEntries.length) {
+      container.innerHTML = `<div class="empty-state">No ${spec.title.toLowerCase()} data is available for this forecast.</div>`;
+      if (note) {
+        note.textContent = spec.id === "feels-like"
+          ? "The active forecast source did not provide apparent temperature for this route."
+          : "This forecast did not include enough data to draw the chart.";
+      }
+      continue;
+    }
+
+    const chart = new uPlot(
+      buildOptions(spec, axisDateFormatter, seriesEntries, computeChartWidth(container)),
+      [xValues, ...seriesEntries.map((entry) => entry.values)] as uPlot.AlignedData,
+      container,
+    );
+    bindHover(chart, spec, report, hover, seriesEntries, dateFormatter);
+    activeCharts.push({ chart, container });
+    if (note) {
+      note.textContent = spec.id === "wind"
+        ? "Values shown in km/h. Gusts remain available in the sample-by-sample detail below."
+        : spec.caption;
+    }
+  }
+
+  if (typeof ResizeObserver === "function") {
+    resizeObserver = new ResizeObserver(() => {
+      for (const entry of activeCharts) {
+        entry.chart.setSize({
+          width: computeChartWidth(entry.container),
+          height: CHART_HEIGHT,
+        });
+      }
+    });
+    for (const entry of activeCharts) {
+      resizeObserver.observe(entry.container);
+    }
+  }
+}
+
+export function teardownForecastCharts(): void {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  for (const entry of activeCharts) {
+    entry.chart.destroy();
+  }
+  activeCharts = [];
+  activeHoverKey = "";
+}
+
+function renderChartCard(spec: ChartSpec): string {
   return `
-    <figure class="chart-frame">
-      <figcaption class="chart-head">
-        <div>
-          <h3>${options.title}</h3>
-          <p>${options.caption}</p>
-        </div>
-        <div class="chart-legend">
-          ${options.series
-            .map(
-              (series) =>
-                `<span><i style="background:${series.color}"></i>${series.label}</span>`,
-            )
-            .join("")}
-        </div>
-      </figcaption>
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${options.title} chart">
-        ${gridLines(width, height)}
-        ${axisLabels(labels, paddedMax, options.yUnit)}
-        ${paths}
-      </svg>
-      <div class="chart-summary">
-        ${options.series
-          .map((series) => {
-            const tail = series.values.at(-1);
-            return `<span>${series.label}: ${formatNullableNumber(tail ?? null, 1)} ${options.yUnit}</span>`;
-          })
-          .join("")}
+    <article class="forecast-chart-card">
+      <div class="panel-head">
+        <h3>${spec.title}</h3>
       </div>
-    </figure>
+      <p class="section-copy">${spec.caption}</p>
+      <p class="chart-note" id="chart-note-${spec.id}">Preparing interactive chart…</p>
+      <div class="forecast-chart-canvas" id="chart-${spec.id}" data-chart-id="${spec.id}"></div>
+    </article>
   `;
 }
 
-function buildPath(
-  values: Array<number | null>,
-  plotWidth: number,
-  plotHeight: number,
-  minValue: number,
-  maxValue: number,
-): string {
-  const span = Math.max(maxValue - minValue, 1);
-  const commands: string[] = [];
-  values.forEach((value, index) => {
-    if (value === null) {
+function buildMetricSeries(
+  report: ForecastReport,
+  metricId: ChartSpec["id"],
+): LineSeriesEntry[] {
+  switch (metricId) {
+    case "temperature":
+      return [
+        {
+          label: "Temperature",
+          color: "#0e5b85",
+          values: report.samples.map((sample) => sample.temperatureC),
+        },
+      ];
+    case "feels-like": {
+      const values = report.samples.map((sample) => sample.apparentTemperatureC);
+      return values.some((value) => value !== null)
+        ? [
+            {
+              label: "Feels like",
+              color: "#f2682a",
+              values,
+            },
+          ]
+        : [];
+    }
+    case "precipitation":
+      return [
+        {
+          label: "Precipitation",
+          color: "#c45d1c",
+          values: report.samples.map((sample) => sample.precipitationMm),
+        },
+      ];
+    case "cloud-cover":
+      return [
+        {
+          label: "Cloud cover",
+          color: "#6c7d8b",
+          values: report.samples.map((sample) => sample.cloudCoverPct),
+        },
+      ];
+    case "wind":
+      return [
+        {
+          label: "Wind",
+          color: "#1c7c63",
+          values: report.samples.map((sample) => sample.windKph),
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+function buildOptions(
+  spec: ChartSpec,
+  axisDateFormatter: Intl.DateTimeFormat,
+  seriesEntries: LineSeriesEntry[],
+  width: number,
+): uPlot.Options {
+  return {
+    width,
+    height: CHART_HEIGHT,
+    legend: { show: false },
+    cursor: {
+      sync: { key: CHART_SYNC_KEY },
+      drag: { x: false, y: false },
+    },
+    scales: {
+      x: { time: true },
+    },
+    axes: [
+      {
+        size: 76,
+        space: AXIS_LABEL_SPACE,
+        values: (_u, values) => values.map((value) => axisDateFormatter.format(new Date(Number(value)))),
+      },
+      {
+        size: spec.id === "elevation" ? 78 : 64,
+        values: (_u, values) => values.map((value) => axisValueLabel(spec.id, Number(value))),
+      },
+    ],
+    series: [
+      {},
+      ...seriesEntries.map((entry) => ({
+        label: entry.label,
+        stroke: entry.color,
+        width: 2,
+        spanGaps: true,
+        points: { show: false },
+      })),
+    ],
+  };
+}
+
+function bindHover(
+  chart: uPlot,
+  spec: ChartSpec,
+  report: ForecastReport,
+  hover: HTMLDivElement | null,
+  seriesEntries: LineSeriesEntry[],
+  dateFormatter: Intl.DateTimeFormat,
+): void {
+  const originalSetCursor = chart.setCursor.bind(chart);
+  chart.setCursor = (cursor, fireHook) => {
+    originalSetCursor(cursor, fireHook);
+    if (!hover) {
       return;
     }
-    const x = PADDING.left + (plotWidth * index) / Math.max(1, values.length - 1);
-    const normalized = (value - minValue) / span;
-    const y = PADDING.top + plotHeight - normalized * plotHeight;
-    commands.push(`${commands.length ? "L" : "M"} ${x.toFixed(1)} ${y.toFixed(1)}`);
-  });
-  return commands.join(" ");
+    const idx = chart.cursor.idx;
+    if (idx === null || idx === undefined || idx < 0) {
+      return;
+    }
+    const hoverKey = `${spec.id}:${idx}`;
+    if (hoverKey === activeHoverKey) {
+      return;
+    }
+    activeHoverKey = hoverKey;
+    renderHoverContent(spec, report, hover, idx, seriesEntries, dateFormatter);
+  };
 }
 
-function gridLines(width: number, height: number): string {
-  const plotWidth = width - PADDING.left - PADDING.right;
-  const plotHeight = height - PADDING.top - PADDING.bottom;
-  return Array.from({ length: 4 }, (_, index) => {
-    const y = PADDING.top + (plotHeight * index) / 3;
-    return `<line x1="${PADDING.left}" y1="${y.toFixed(1)}" x2="${PADDING.left + plotWidth}" y2="${y.toFixed(1)}" stroke="rgba(58,73,88,0.15)" stroke-width="2" />`;
-  }).join("");
-}
+function renderHoverContent(
+  spec: ChartSpec,
+  report: ForecastReport,
+  hover: HTMLDivElement,
+  sampleIndex: number,
+  seriesEntries: LineSeriesEntry[],
+  dateFormatter: Intl.DateTimeFormat,
+): void {
+  const sample = report.samples[sampleIndex];
+  if (!sample) {
+    hover.textContent = "Hover a chart to inspect that route moment in detail.";
+    return;
+  }
 
-function axisLabels(labels: string[], maxValue: number, unit: string): string {
-  const plotWidth = CHART_WIDTH - PADDING.left - PADDING.right;
-  const leftLabels = [
-    { y: PADDING.top + 8, text: `${formatNumber(maxValue, 0)} ${unit}` },
-    { y: CHART_HEIGHT - PADDING.bottom, text: `0 ${unit}` },
-  ];
-  const bottomLabels = labels.map((label, index) => {
-    const x = PADDING.left + (plotWidth * index) / Math.max(1, labels.length - 1);
-    return `<text x="${x.toFixed(1)}" y="${CHART_HEIGHT - 10}" text-anchor="middle">${label}</text>`;
-  });
+  const rows = seriesEntries
+    .map((entry) => {
+      const value = entry.values[sampleIndex];
+      return `
+        <div class="forecast-chart-hover-row">
+          <strong style="color:${entry.color}">${entry.label}</strong>
+          <span>${formatMetricValue(spec.id, value)}</span>
+        </div>
+      `;
+    })
+    .join("");
 
-  return `
-    <g class="chart-axis">
-      ${leftLabels.map((entry) => `<text x="8" y="${entry.y.toFixed(1)}">${entry.text}</text>`).join("")}
-      ${bottomLabels.join("")}
-    </g>
+  hover.innerHTML = `
+    <strong>${spec.title}</strong><br>
+    ${dateFormatter.format(new Date(sample.sample.timestampMs))} •
+    ${formatNumber(sample.sample.distanceM / 1000, 2)} km •
+    ${sample.sample.elevationM === null ? "n/a" : `${formatNumber(sample.sample.elevationM, 0)} m`}
+    <div class="forecast-chart-hover-grid">${rows}</div>
   `;
 }
 
-function buildTimeLabels(samples: SampleForecast[], timezoneName: string): string[] {
-  const first = samples[0];
-  const middle = samples[Math.floor(samples.length / 2)];
-  const last = samples.at(-1) ?? middle;
-  return [
-    formatDateTime(first.sample.timestampMs, timezoneName),
-    formatDateTime(middle.sample.timestampMs, timezoneName),
-    formatDateTime(last.sample.timestampMs, timezoneName),
-  ];
+function formatMetricValue(metricId: ChartSpec["id"], value: number | null): string {
+  if (value === null || Number.isNaN(value)) {
+    return "n/a";
+  }
+  const digits = metricDigits(metricId);
+  const unit = metricUnit(metricId);
+  if (metricId === "wind") {
+    return `${Number(value).toFixed(digits)}`;
+  }
+  return `${Number(value).toFixed(digits)} ${unit}`;
 }
 
-function markerSamples(samples: SampleForecast[]): SampleForecast[] {
-  if (samples.length <= 6) {
-    return samples;
+function axisValueLabel(metricId: ChartSpec["id"], value: number): string {
+  const digits = metricDigits(metricId);
+  if (metricId === "wind") {
+    return Number(value).toFixed(digits);
   }
+  return `${Number(value).toFixed(digits)} ${metricUnit(metricId)}`;
+}
 
-  const step = Math.max(1, Math.floor(samples.length / 5));
-  const markers = new Set<number>([0, samples.length - 1]);
-  for (let index = step; index < samples.length - 1; index += step) {
-    markers.add(index);
+function metricUnit(metricId: ChartSpec["id"]): string {
+  switch (metricId) {
+    case "temperature":
+    case "feels-like":
+      return "C";
+    case "precipitation":
+      return "mm";
+    case "cloud-cover":
+      return "%";
+    case "wind":
+      return "km/h";
+    case "elevation":
+      return "m";
   }
-  return [...markers].sort((left, right) => left - right).map((index) => samples[index]);
+}
+
+function metricDigits(metricId: ChartSpec["id"]): number {
+  switch (metricId) {
+    case "precipitation":
+      return 2;
+    case "wind":
+    case "cloud-cover":
+    case "elevation":
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+function buildDateFormatter(timezoneName: string): Intl.DateTimeFormat {
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  try {
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: timezoneName });
+  } catch {
+    return new Intl.DateTimeFormat("en-US", options);
+  }
+}
+
+function buildAxisDateFormatter(timezoneName: string): Intl.DateTimeFormat {
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  };
+  try {
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: timezoneName });
+  } catch {
+    return new Intl.DateTimeFormat("en-US", options);
+  }
+}
+
+function computeChartWidth(container: HTMLDivElement): number {
+  return Math.max(container.clientWidth - CHART_RESIZE_PADDING, CHART_MIN_WIDTH);
 }
