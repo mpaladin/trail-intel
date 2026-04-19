@@ -97,7 +97,8 @@ export async function mountForecastMap(report: ForecastReport): Promise<void> {
       resolved = true;
       fallback.hidden = true;
       container.hidden = false;
-      note.textContent = "CARTO Voyager tiles with route overlays and wind-direction arrows.";
+      note.textContent =
+        "CARTO Voyager tiles on an OpenStreetMap-style basemap with route overlays and wind-direction arrows.";
       window.setTimeout(() => activeMap?.invalidateSize(), 0);
     }
   });

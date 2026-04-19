@@ -99,6 +99,15 @@ npm run test
 npm run build
 ```
 
+Smoke-test the deployed PWA against the public site:
+
+```bash
+cd /path/to/trailintel/web
+npm run build
+npx playwright install chromium
+npm run smoke:deployed -- --url https://mpaladin.com/forecast/ --gpx ../tests/fixtures/sample_route.gpx
+```
+
 ## Usage
 
 ### Forecast CLI
@@ -387,6 +396,7 @@ Published Pages layout:
 The PWA deploy workflow is separate from the report-publishing workflows and is intended for maintainers with the required repository secrets:
 
 - `.github/workflows/deploy-pwa.yml` builds `web/` and publishes it into `mpaladin/website` under `forecast/`
+- after publishing, the same workflow installs Chromium and runs a live smoke test against `https://mpaladin.com/forecast/`
 - required config for the PWA deploy workflow:
   - `WEBSITE_REPO`: target site repo, for example `mpaladin/website`
   - `WEBSITE_BRANCH`: target branch, for example `gh-pages`
