@@ -88,3 +88,14 @@ jobs:
           fi
           git commit -m "Publish TrailIntel Forecast PWA"
           git push origin "$branch"
+
+      - name: Install Chromium for deployed smoke test
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test deployed PWA
+        working-directory: web
+        run: |
+          npm run smoke:deployed -- \
+            --url "https://mpaladin.com/forecast/" \
+            --gpx "../tests/fixtures/sample_route.gpx"
