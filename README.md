@@ -22,6 +22,7 @@ TrailIntel is available under the MIT License.
   - `--race-url` (auto-detect JSON/CSV/HTML with optional CSS selector)
   - `--participants-file` (CSV, JSON, or TXT)
   - one or more `--participant "First Last"`
+  - supported registration/list providers include Yaka, Njuko, RaceResult, Wedosport, Grand Raid Reunion, and Endu
 - Enrichment from UTMB, ITRA, and Betrail
 - Two strategies:
   - `participant-first`: lookup each participant, then keep athletes above threshold
@@ -218,7 +219,7 @@ If the URL is HTML and auto-detection is noisy, pass a selector:
 trailintel --race-url "https://example.com/participants" --name-selector ".runner-name"
 ```
 
-For multi-distance event pages (for example Yaka Inscription), pass
+For multi-distance event pages (for example Yaka Inscription or Endu), pass
 `--competition-name` to select a single distance.
 
 ### 2) From file
