@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from trailintel.participants import (
+    ENDU_HEADERS,
     GENERIC_BROWSER_HEADERS,
     RACERESULT_HEADERS,
     _extract_names_from_html,
@@ -567,6 +568,138 @@ class ParticipantParsingTests(unittest.TestCase):
 
         self.assertEqual(names, ["Alice Martin"])
         self.assertEqual(mock_get.call_count, 1)
+
+    @patch("trailintel.participants.requests.get")
+    def test_fetch_endu_participants_json_url_paginates_and_filters(
+        self, mock_get: Mock
+    ) -> None:
+        first_payload = {
+            "total": "2",
+            "records": "3",
+            "page": "1",
+            "rows": [
+                {
+                    "id": 0,
+                    "cell": [
+                        "",
+                        "Jesus Aaron",
+                        "Alonso Herrera",
+                        "1980",
+                        "ESP",
+                        "RUN CARD",
+                        "",
+                        "52 k Saturday 2 May - Athletes with Fidal Runcard",
+                    ],
+                },
+                {
+                    "id": 1,
+                    "cell": [
+                        "",
+                        "Maria Luisa",
+                        "Acerbi",
+                        "1987",
+                        "ITA",
+                        "BIKE & RUN",
+                        "",
+                        "26 k Saturday 2 May - Athletes with Fidal Runcard",
+                    ],
+                },
+            ],
+        }
+        second_payload = {
+            "total": "2",
+            "records": "3",
+            "page": "2",
+            "rows": [
+                {
+                    "id": 2,
+                    "cell": [
+                        "",
+                        "Marco",
+                        "Amigoni",
+                        "1976",
+                        "ITA",
+                        "RUN CARD",
+                        "",
+                        "52 k NON competitive race Saturday 2 May",
+                    ],
+                }
+            ],
+        }
+
+        first_response = Mock()
+        first_response.raise_for_status.return_value = None
+        first_response.json.return_value = first_payload
+
+        second_response = Mock()
+        second_response.raise_for_status.return_value = None
+        second_response.json.return_value = second_payload
+
+        mock_get.side_effect = [first_response, second_response]
+
+        names = fetch_participants_from_url(
+            "https://event.endu.net/events/event/entrants-json?idevento=100384&amp;idgara=0&_search=false&rows=20&page=1",
+            competition_name="52k",
+        )
+
+        self.assertEqual(names, ["Jesus Aaron Alonso Herrera", "Marco Amigoni"])
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(
+            mock_get.call_args_list[0].args[0],
+            "https://event.endu.net/events/event/entrants-json",
+        )
+        first_params = mock_get.call_args_list[0].kwargs.get("params", {})
+        self.assertEqual(first_params.get("idevento"), "100384")
+        self.assertEqual(first_params.get("idgara"), "0")
+        self.assertEqual(first_params.get("rows"), "1000")
+        self.assertEqual(first_params.get("page"), "1")
+        self.assertEqual(mock_get.call_args_list[0].kwargs.get("headers"), ENDU_HEADERS)
+        second_params = mock_get.call_args_list[1].kwargs.get("params", {})
+        self.assertEqual(second_params.get("page"), "2")
+
+    @patch("trailintel.participants.requests.get")
+    def test_fetch_endu_participants_page_url_builds_json_endpoint(
+        self, mock_get: Mock
+    ) -> None:
+        payload = {
+            "total": "1",
+            "records": "1",
+            "page": "1",
+            "rows": [
+                {
+                    "id": 0,
+                    "cell": [
+                        "",
+                        "Gabriele",
+                        "Abelli",
+                        "1968",
+                        "ITA",
+                        "RUN CARD",
+                        "",
+                        "16 k Sunday 3 May - Athletes with Fidal Runcard",
+                    ],
+                }
+            ],
+        }
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = payload
+        mock_get.return_value = response
+
+        names = fetch_participants_from_url(
+            "https://event.endu.net/events/event/entrants?editionId=100384",
+        )
+
+        self.assertEqual(names, ["Gabriele Abelli"])
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            "https://event.endu.net/events/event/entrants-json",
+        )
+        params = mock_get.call_args.kwargs.get("params", {})
+        self.assertEqual(params.get("idevento"), "100384")
+        self.assertEqual(params.get("idgara"), "0")
+        self.assertEqual(params.get("rows"), "1000")
 
 
 if __name__ == "__main__":

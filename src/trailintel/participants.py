@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -75,6 +75,19 @@ WEDOSPORT_HOST_SUFFIX = "wedosport.net"
 WEDOSPORT_LIST_PATH_MARKER = "/lista-iscritti/"
 GRANDRAID_HOST_SUFFIX = "grandraid-reunion.com"
 GRANDRAID_LIST_PATH_MARKER = "/listes-des-inscrits/"
+ENDU_HOST_SUFFIX = "endu.net"
+ENDU_ENTRANTS_PATH = "/events/event/entrants"
+ENDU_ENTRANTS_JSON_PATH = "/events/event/entrants-json"
+ENDU_PAGE_SIZE = 1000
+ENDU_HEADERS = {
+    "accept": "application/json,text/javascript,*/*;q=0.01",
+    "x-requested-with": "XMLHttpRequest",
+    "user-agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/145.0.0.0 Safari/537.36"
+    ),
+}
 GENERIC_BROWSER_HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "accept-language": "en-US,en;q=0.9",
@@ -631,6 +644,171 @@ def _fetch_grandraid_participants(
     return dedupe_names(names)
 
 
+def _parse_query_params(url: str) -> dict[str, str]:
+    parsed = urlparse(url.replace("&amp;", "&"))
+    params: dict[str, str] = {}
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        normalized_key = key.removeprefix("amp;")
+        params[normalized_key] = value
+    return params
+
+
+def _endu_json_request(url: str) -> tuple[str, dict[str, str]] | None:
+    cleaned_url = url.replace("&amp;", "&")
+    parsed = urlparse(cleaned_url)
+    host = (parsed.hostname or "").lower()
+    if not host.endswith(ENDU_HOST_SUFFIX):
+        return None
+
+    path = parsed.path.rstrip("/").casefold()
+    query = _parse_query_params(cleaned_url)
+
+    if path == ENDU_ENTRANTS_JSON_PATH:
+        event_id = query.get("idevento") or query.get("editionId")
+        if not event_id:
+            return None
+        endpoint = urlunparse(parsed._replace(query="", fragment=""))
+        params = {
+            key: value
+            for key, value in query.items()
+            if key not in {"nd", "page", "rows"}
+        }
+        params["idevento"] = event_id
+    elif path == ENDU_ENTRANTS_PATH:
+        event_id = query.get("editionId") or query.get("idevento")
+        if not event_id:
+            return None
+        endpoint = urlunparse(
+            parsed._replace(path=ENDU_ENTRANTS_JSON_PATH, query="", fragment="")
+        )
+        params = {"idevento": event_id, "idgara": query.get("idgara", "0")}
+    else:
+        return None
+
+    params.setdefault("idgara", "0")
+    params.setdefault("_search", "false")
+    params.setdefault("sidx", "i.PETTORALE,i.COGNOME")
+    params.setdefault("sord", "asc")
+    return endpoint, params
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            return None
+        return parsed if parsed >= 0 else None
+    return None
+
+
+def _endu_rows(payload: object) -> list[object]:
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return []
+    return rows
+
+
+def _endu_compact_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+def _endu_course_matches(course: str, competition_name: str | None) -> bool:
+    if not competition_name:
+        return True
+
+    normalized_course = " ".join(course.split()).casefold()
+    normalized_target = " ".join(competition_name.split()).casefold()
+    if not normalized_course or not normalized_target:
+        return False
+    if normalized_target in normalized_course or normalized_course in normalized_target:
+        return True
+
+    compact_course = _endu_compact_text(normalized_course)
+    compact_target = _endu_compact_text(normalized_target)
+    return bool(
+        compact_course
+        and compact_target
+        and (compact_target in compact_course or compact_course in compact_target)
+    )
+
+
+def _parse_endu_payload(
+    payload: object,
+    *,
+    competition_name: str | None,
+) -> list[str]:
+    names: list[str] = []
+    for row in _endu_rows(payload):
+        if not isinstance(row, dict):
+            continue
+        cells = row.get("cell")
+        if not isinstance(cells, list) or len(cells) < 3:
+            continue
+
+        course = cells[7] if len(cells) > 7 else ""
+        if not isinstance(course, str):
+            course = ""
+        if not _endu_course_matches(course, competition_name):
+            continue
+
+        first_name = cells[1]
+        last_name = cells[2]
+        if not isinstance(first_name, str) or not isinstance(last_name, str):
+            continue
+
+        full_name = normalize_name(f"{first_name} {last_name}")
+        if full_name and _looks_like_person_name_permissive(full_name):
+            names.append(full_name)
+    return dedupe_names(names)
+
+
+def _fetch_endu_participants(
+    url: str,
+    *,
+    timeout: int,
+    competition_name: str | None,
+) -> list[str] | None:
+    request = _endu_json_request(url)
+    if request is None:
+        return None
+    endpoint, params = request
+
+    names: list[str] = []
+    page = 1
+    while True:
+        page_params = dict(params)
+        page_params["rows"] = str(ENDU_PAGE_SIZE)
+        page_params["page"] = str(page)
+        response = requests.get(
+            endpoint, headers=ENDU_HEADERS, timeout=timeout, params=page_params
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = _endu_rows(payload)
+        names.extend(_parse_endu_payload(payload, competition_name=competition_name))
+
+        if not rows:
+            break
+        total_pages = (
+            _positive_int(payload.get("total")) if isinstance(payload, dict) else None
+        )
+        if total_pages is not None:
+            if page >= total_pages:
+                break
+        elif len(rows) < ENDU_PAGE_SIZE:
+            break
+        page += 1
+
+    return dedupe_names(names)
+
+
 def _fetch_yaka_participants(
     url: str,
     *,
@@ -842,6 +1020,14 @@ def fetch_participants_from_url(
     )
     if grandraid_names is not None:
         return grandraid_names
+
+    endu_names = _fetch_endu_participants(
+        url,
+        timeout=timeout,
+        competition_name=competition_name,
+    )
+    if endu_names is not None:
+        return endu_names
 
     response = requests.get(url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS)
     response.raise_for_status()
