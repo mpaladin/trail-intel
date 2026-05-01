@@ -262,6 +262,8 @@ jobs:
               site_dir=Path("dist/site"),
               title=str(payload["route_name"]),
               timezone_name=str(payload["timezone_name"]),
+              provider="open-meteo",
+              compare_providers=["met-no"],
           )
           PY
         env:

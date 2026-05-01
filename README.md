@@ -385,7 +385,7 @@ Forecast flow:
 2. Fill in route name, start date, start time, timezone, duration, and either:
    - a direct public `https` GPX or ZIP URL in `GPX URL`, or
    - one ZIP attachment containing exactly one GPX in `Notes`
-3. The workflow validates the requester for issue-based runs, validates the URL, downloads the GPX, runs `trailintel-forecast`, uploads the artifact bundle, publishes it to the public Pages repo, and comments back on the issue when applicable.
+3. The workflow validates the requester for issue-based runs, validates the URL, downloads the GPX, runs `trailintel-forecast` with Open-Meteo plus MET Norway comparison by default, uploads the artifact bundle, publishes it to the public Pages repo, and comments back on the issue when applicable.
 4. Workflow URLs must use `https` and must not resolve to localhost, loopback, link-local, or private-network addresses.
 
 Published Pages layout:
