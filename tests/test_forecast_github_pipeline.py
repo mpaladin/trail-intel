@@ -114,6 +114,67 @@ Sunrise push.
             "https://github.com/user-attachments/files/123/route.zip",
         )
 
+    def test_resolve_gpx_source_url_uses_single_xml_attachment(self) -> None:
+        request = ForecastRequest(
+            route_name="Dolomite Dawn",
+            gpx_url="",
+            start_date="2026-07-15",
+            start_time="06:30",
+            timezone_name="Europe/Rome",
+            duration="03:30",
+        )
+        body = "XML attachment https://github.com/user-attachments/files/123/route.xml"
+        self.assertEqual(
+            resolve_gpx_source_url(request, body),
+            "https://github.com/user-attachments/files/123/route.xml",
+        )
+
+    def test_resolve_gpx_source_url_prefers_comment_attachment(self) -> None:
+        request = ForecastRequest(
+            route_name="Dolomite Dawn",
+            gpx_url="https://gist.github.com/example/html-page",
+            start_date="2026-07-15",
+            start_time="06:30",
+            timezone_name="Europe/Rome",
+            duration="03:30",
+        )
+        comment = (
+            "Replacement route "
+            "https://github.com/user-attachments/files/123/replacement.zip"
+        )
+        self.assertEqual(
+            resolve_gpx_source_url(
+                request,
+                "Old issue body",
+                comment_body=comment,
+                prefer_comment=True,
+            ),
+            "https://github.com/user-attachments/files/123/replacement.zip",
+        )
+
+    def test_resolve_gpx_source_url_rejects_multiple_comment_attachments(self) -> None:
+        request = ForecastRequest(
+            route_name="Dolomite Dawn",
+            gpx_url="https://example.com/route.gpx",
+            start_date="2026-07-15",
+            start_time="06:30",
+            timezone_name="Europe/Rome",
+            duration="03:30",
+        )
+        comment = "\n".join(
+            [
+                "https://github.com/user-attachments/files/123/first.zip",
+                "https://github.com/user-attachments/files/456/second.xml",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "Multiple GPX attachment URLs"):
+            resolve_gpx_source_url(
+                request,
+                "Old issue body",
+                comment_body=comment,
+                prefer_comment=True,
+            )
+
     def test_download_gpx_source_extracts_single_gpx_from_zip(self) -> None:
         buffer = BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
@@ -130,12 +191,36 @@ Sunrise push.
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch(
-                "trailintel.github_pipeline.socket.getaddrinfo",
-                return_value=[(0, 0, 0, "", ("93.184.216.34", 443))],
+                "trailintel.forecast.github_pipeline.validate_public_https_url",
+                side_effect=lambda url, *, label="URL": url,
             ):
                 with patch("requests.get", return_value=FakeResponse(zip_bytes)):
                     path = download_gpx_source(
                         source_url="https://example.com/route.zip",
+                        output_dir=tmp,
+                    )
+            self.assertEqual(path.name, "route.gpx")
+            self.assertIn("<gpx>", path.read_text(encoding="utf-8"))
+
+    def test_download_gpx_source_accepts_xml_attachment_url(self) -> None:
+        xml_bytes = b'<?xml version="1.0"?><gpx><trk></trk></gpx>'
+
+        class FakeResponse:
+            def __init__(self, content: bytes) -> None:
+                self.content = content
+                self.headers = {"Content-Type": "application/xml"}
+
+            def raise_for_status(self) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch(
+                "trailintel.forecast.github_pipeline.validate_public_https_url",
+                side_effect=lambda url, *, label="URL": url,
+            ):
+                with patch("requests.get", return_value=FakeResponse(xml_bytes)):
+                    path = download_gpx_source(
+                        source_url="https://github.com/user-attachments/files/123/route.xml",
                         output_dir=tmp,
                     )
             self.assertEqual(path.name, "route.gpx")
@@ -149,18 +234,12 @@ Sunrise push.
                     output_dir=tmp,
                 )
 
-    @patch(
-        "trailintel.github_pipeline.socket.getaddrinfo",
-        return_value=[(0, 0, 0, "", ("127.0.0.1", 443))],
-    )
-    def test_download_gpx_source_rejects_private_target(
-        self, _mock_getaddrinfo
-    ) -> None:
+    def test_download_gpx_source_rejects_private_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with patch("requests.get") as mock_get:
                 with self.assertRaisesRegex(ValueError, "must not target localhost"):
                     download_gpx_source(
-                        source_url="https://internal.example/route.zip",
+                        source_url="https://localhost/route.zip",
                         output_dir=tmp,
                     )
                 mock_get.assert_not_called()

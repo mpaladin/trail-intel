@@ -15,7 +15,7 @@ body:
     id: gpx_url
     attributes:
       label: GPX URL
-      description: Optional direct URL to a `.gpx` or `.zip` containing exactly one GPX. Leave blank if you will attach one ZIP in Notes.
+      description: Optional direct URL to a `.gpx`, `.xml`, or `.zip` containing exactly one GPX. Leave blank if you will attach the route to Notes.
       placeholder: "https://example.com/route.gpx"
   - type: input
     id: start_date
@@ -53,5 +53,5 @@ body:
     id: notes
     attributes:
       label: Notes
-      description: Optional notes. If `GPX URL` is blank, drag one ZIP attachment containing exactly one GPX into this field.
-      placeholder: "Forecast for a sunrise recon. ZIP attachment is included here if no GPX URL is provided."
+      description: Optional notes. Preferred GPX handoff is one ZIP attachment containing exactly one GPX. Alternatively, rename the GPX to `.xml` and attach it here.
+      placeholder: "Forecast for a sunrise recon. Attach route.zip here if no GPX URL is provided."

@@ -19,39 +19,71 @@ from trailintel.site import build_report_snapshot, export_report_site
 
 
 class GitHubPipelineTests(unittest.TestCase):
-    @patch("trailintel.github_pipeline.socket.getaddrinfo")
-    def test_validate_public_https_url_accepts_public_https(
-        self, mock_getaddrinfo
-    ) -> None:
-        mock_getaddrinfo.return_value = [
-            (0, 0, 0, "", ("93.184.216.34", 443)),
-        ]
+    def test_validate_public_https_url_accepts_public_https(self) -> None:
+        resolved_address = object()
 
-        self.assertEqual(
-            validate_public_https_url(
-                "https://example.com/participants.csv",
-                label="Race URL",
+        def parse_resolved_address(value: str) -> object:
+            if value == "example.com":
+                raise ValueError("hostname")
+            self.assertEqual(value, "resolved-address")
+            return resolved_address
+
+        with (
+            patch(
+                "trailintel.github_pipeline.socket.getaddrinfo",
+                return_value=[(0, 0, 0, "", ("resolved-address", 443))],
             ),
-            "https://example.com/participants.csv",
-        )
+            patch(
+                "trailintel.github_pipeline._parse_ip_address",
+                side_effect=parse_resolved_address,
+            ),
+            patch(
+                "trailintel.github_pipeline._is_disallowed_target",
+                return_value=False,
+            ) as mock_is_disallowed_target,
+        ):
+            self.assertEqual(
+                validate_public_https_url(
+                    "https://example.com/participants.csv",
+                    label="Race URL",
+                ),
+                "https://example.com/participants.csv",
+            )
+        mock_is_disallowed_target.assert_called_once_with(resolved_address)
 
     def test_validate_public_https_url_rejects_http(self) -> None:
         with self.assertRaisesRegex(ValueError, "must use https"):
             validate_public_https_url("http://example.com/participants.csv")
 
-    @patch("trailintel.github_pipeline.socket.getaddrinfo")
-    def test_validate_public_https_url_rejects_private_targets(
-        self, mock_getaddrinfo
-    ) -> None:
-        mock_getaddrinfo.return_value = [
-            (0, 0, 0, "", ("127.0.0.1", 443)),
-        ]
+    def test_validate_public_https_url_rejects_private_targets(self) -> None:
+        resolved_address = object()
 
-        with self.assertRaisesRegex(ValueError, "must not target localhost"):
-            validate_public_https_url(
-                "https://internal.example/participants.csv",
-                label="Race URL",
-            )
+        def parse_resolved_address(value: str) -> object:
+            if value == "internal.example":
+                raise ValueError("hostname")
+            self.assertEqual(value, "resolved-private-address")
+            return resolved_address
+
+        with (
+            patch(
+                "trailintel.github_pipeline.socket.getaddrinfo",
+                return_value=[(0, 0, 0, "", ("resolved-private-address", 443))],
+            ),
+            patch(
+                "trailintel.github_pipeline._parse_ip_address",
+                side_effect=parse_resolved_address,
+            ),
+            patch(
+                "trailintel.github_pipeline._is_disallowed_target",
+                return_value=True,
+            ) as mock_is_disallowed_target,
+        ):
+            with self.assertRaisesRegex(ValueError, "must not target localhost"):
+                validate_public_https_url(
+                    "https://internal.example/participants.csv",
+                    label="Race URL",
+                )
+        mock_is_disallowed_target.assert_called_once_with(resolved_address)
 
     def test_parse_issue_form(self) -> None:
         body = """### Race Name

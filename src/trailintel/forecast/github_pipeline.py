@@ -161,19 +161,67 @@ def looks_like_zip_url(url: str) -> bool:
     return path.endswith(".zip") or ".zip/" in path or ".zip?" in url.lower()
 
 
-def resolve_gpx_source_url(request: ForecastRequest, issue_body: str) -> str:
+def looks_like_gpx_file_url(url: str) -> bool:
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    lower_url = url.lower()
+    return any(
+        path.endswith(extension)
+        or f"{extension}/" in path
+        or f"{extension}?" in lower_url
+        for extension in (".gpx", ".xml")
+    )
+
+
+def looks_like_gpx_source_url(url: str) -> bool:
+    return looks_like_zip_url(url) or looks_like_gpx_file_url(url)
+
+
+def _gpx_source_urls(text: str) -> list[str]:
+    return [url for url in extract_urls(text) if looks_like_gpx_source_url(url)]
+
+
+def _resolve_single_gpx_source(text: str, *, location: str) -> str:
+    urls = _gpx_source_urls(text)
+    if len(urls) == 1:
+        return urls[0]
+    if len(urls) > 1:
+        raise ValueError(
+            f"Multiple GPX attachment URLs were found in the {location}. Keep only one ZIP, GPX, or XML attachment URL."
+        )
+    return ""
+
+
+def resolve_gpx_source_url(
+    request: ForecastRequest,
+    issue_body: str,
+    *,
+    comment_body: str = "",
+    prefer_comment: bool = False,
+) -> str:
+    if prefer_comment:
+        comment_url = _resolve_single_gpx_source(
+            comment_body, location="triggering comment"
+        )
+        if comment_url:
+            return comment_url
+
     if request.gpx_url.strip():
         return request.gpx_url.strip()
 
-    zip_urls = [url for url in extract_urls(issue_body) if looks_like_zip_url(url)]
-    if len(zip_urls) == 1:
-        return zip_urls[0]
-    if len(zip_urls) > 1:
-        raise ValueError(
-            "Multiple ZIP attachment URLs were found in the issue. Keep only one ZIP attachment or paste the GPX URL directly."
+    issue_url = _resolve_single_gpx_source(issue_body, location="issue body")
+    if issue_url:
+        return issue_url
+
+    if comment_body and not prefer_comment:
+        comment_url = _resolve_single_gpx_source(
+            comment_body, location="triggering comment"
         )
+        if comment_url:
+            return comment_url
+
     raise ValueError(
-        "No GPX URL was provided and no ZIP attachment URL was found in the issue body."
+        "No GPX URL was provided and no ZIP, GPX, or XML attachment URL was found in the issue body or triggering comment."
     )
 
 
@@ -244,7 +292,7 @@ def download_gpx_source(
 
     stripped = content.lstrip()
     if (
-        validated_url.lower().endswith(".gpx")
+        looks_like_gpx_file_url(validated_url)
         or stripped.startswith(b"<?xml")
         or b"<gpx" in stripped[:256].lower()
     ):

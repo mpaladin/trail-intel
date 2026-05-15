@@ -3,6 +3,8 @@ name: Generate Forecast Report
 on:
   issues:
     types: [opened, edited, reopened]
+  issue_comment:
+    types: [created, edited]
   workflow_dispatch:
     inputs:
       route_name:
@@ -10,7 +12,7 @@ on:
         required: true
         type: string
       gpx_url:
-        description: Direct GPX or ZIP URL
+        description: Direct GPX, XML, or ZIP URL
         required: true
         type: string
       start_date:
@@ -38,7 +40,32 @@ on:
 
 jobs:
   prepare:
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.issue.title, '[forecast]') || contains(join(github.event.issue.labels.*.name, ','), 'forecast-request') }}
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issues' &&
+          (
+            startsWith(github.event.issue.title, '[forecast]') ||
+            contains(join(github.event.issue.labels.*.name, ','), 'forecast-request')
+          )
+        ) ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request == null &&
+          github.event.comment.user.type != 'Bot' &&
+          contains(github.event.comment.body, 'github.com/user-attachments/') &&
+          (
+            contains(github.event.comment.body, '.zip') ||
+            contains(github.event.comment.body, '.gpx') ||
+            contains(github.event.comment.body, '.xml')
+          ) &&
+          (
+            startsWith(github.event.issue.title, '[forecast]') ||
+            contains(join(github.event.issue.labels.*.name, ','), 'forecast-request')
+          )
+        )
+      }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,6 +106,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
           INPUT_ROUTE_NAME: ${{ inputs.route_name }}
           INPUT_GPX_URL: ${{ inputs.gpx_url }}
           INPUT_START_DATE: ${{ inputs.start_date }}
@@ -106,10 +134,16 @@ jobs:
           error = ""
           payload = {}
           try:
-              if os.environ["EVENT_NAME"] == "issues":
+              if os.environ["EVENT_NAME"] in {"issues", "issue_comment"}:
                   issue_body = os.getenv("ISSUE_BODY", "")
+                  comment_body = os.getenv("COMMENT_BODY", "")
                   request = parse_issue_form(issue_body)
-                  source_url = resolve_gpx_source_url(request, issue_body)
+                  source_url = resolve_gpx_source_url(
+                      request,
+                      issue_body,
+                      comment_body=comment_body,
+                      prefer_comment=os.environ["EVENT_NAME"] == "issue_comment",
+                  )
                   request = ForecastRequest(
                       route_name=request.route_name,
                       gpx_url=validate_public_https_url(source_url, label="GPX URL"),
@@ -151,7 +185,7 @@ jobs:
           PY
 
   deny_request:
-    if: ${{ needs.prepare.outputs.authorized == 'false' && github.event_name == 'issues' }}
+    if: ${{ needs.prepare.outputs.authorized == 'false' && github.event_name != 'workflow_dispatch' }}
     needs: prepare
     runs-on: ubuntu-latest
     permissions:
@@ -175,7 +209,7 @@ jobs:
       issues: write
     steps:
       - name: Comment invalid request on issue
-        if: github.event_name == 'issues'
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/github-script@v9
         env:
           REQUEST_ERROR: ${{ needs.prepare.outputs.request_error }}
@@ -357,7 +391,7 @@ jobs:
           git push origin "$branch"
 
       - name: Comment success on issue
-        if: github.event_name == 'issues'
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/github-script@v9
         env:
           PUBLISH_JSON: ${{ steps.publish.outputs.publish_json }}
@@ -388,7 +422,7 @@ jobs:
             });
 
   comment_failure:
-    if: ${{ always() && needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error == '' && needs.run_report.result == 'failure' && github.event_name == 'issues' }}
+    if: ${{ always() && needs.prepare.outputs.authorized == 'true' && needs.prepare.outputs.request_error == '' && needs.run_report.result == 'failure' && github.event_name != 'workflow_dispatch' }}
     needs: [prepare, run_report]
     runs-on: ubuntu-latest
     permissions:
