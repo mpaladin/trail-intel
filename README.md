@@ -383,10 +383,12 @@ Forecast flow:
 
 1. Open the `Generate forecast report` issue form or run `.github/workflows/generate-forecast-report.yml` manually.
 2. Fill in route name, start date, start time, timezone, duration, and either:
-   - a direct public `https` GPX or ZIP URL in `GPX URL`, or
-   - one ZIP attachment containing exactly one GPX in `Notes`
+   - a direct public `https` GPX, XML, or ZIP URL in `GPX URL`, or
+   - one `route.zip` attachment containing exactly one GPX in `Notes`, or
+   - one GPX renamed to `route.xml` and attached in `Notes`
 3. The workflow validates the requester for issue-based runs, validates the URL, downloads the GPX, runs `trailintel-forecast` with Open-Meteo plus MET Norway comparison by default, uploads the artifact bundle, publishes it to the public Pages repo, and comments back on the issue when applicable.
-4. Workflow URLs must use `https` and must not resolve to localhost, loopback, link-local, or private-network addresses.
+4. To rerun an existing forecast issue with a replacement route, add a new issue comment containing exactly one `route.zip` or `route.xml` attachment.
+5. Workflow URLs must use `https` and must not resolve to localhost, loopback, link-local, or private-network addresses.
 
 Published Pages layout:
 
