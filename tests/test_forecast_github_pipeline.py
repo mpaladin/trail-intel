@@ -191,8 +191,8 @@ Sunrise push.
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch(
-                "trailintel.github_pipeline.socket.getaddrinfo",
-                return_value=[(0, 0, 0, "", ("93.184.216.34", 443))],
+                "trailintel.forecast.github_pipeline.validate_public_https_url",
+                side_effect=lambda url, *, label="URL": url,
             ):
                 with patch("requests.get", return_value=FakeResponse(zip_bytes)):
                     path = download_gpx_source(
@@ -215,8 +215,8 @@ Sunrise push.
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch(
-                "trailintel.github_pipeline.socket.getaddrinfo",
-                return_value=[(0, 0, 0, "", ("93.184.216.34", 443))],
+                "trailintel.forecast.github_pipeline.validate_public_https_url",
+                side_effect=lambda url, *, label="URL": url,
             ):
                 with patch("requests.get", return_value=FakeResponse(xml_bytes)):
                     path = download_gpx_source(
@@ -234,18 +234,12 @@ Sunrise push.
                     output_dir=tmp,
                 )
 
-    @patch(
-        "trailintel.github_pipeline.socket.getaddrinfo",
-        return_value=[(0, 0, 0, "", ("127.0.0.1", 443))],
-    )
-    def test_download_gpx_source_rejects_private_target(
-        self, _mock_getaddrinfo
-    ) -> None:
+    def test_download_gpx_source_rejects_private_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with patch("requests.get") as mock_get:
                 with self.assertRaisesRegex(ValueError, "must not target localhost"):
                     download_gpx_source(
-                        source_url="https://internal.example/route.zip",
+                        source_url="https://localhost/route.zip",
                         output_dir=tmp,
                     )
                 mock_get.assert_not_called()
