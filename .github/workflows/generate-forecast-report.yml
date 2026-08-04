@@ -76,7 +76,7 @@ jobs:
       route_name: ${{ steps.request.outputs.route_name }}
       request_error: ${{ steps.request.outputs.request_error }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -245,7 +245,7 @@ jobs:
     outputs:
       publish_json: ${{ steps.publish.outputs.publish_json }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
