@@ -7,7 +7,9 @@ from trailintel.participants import (
     ENDU_HEADERS,
     GENERIC_BROWSER_HEADERS,
     RACERESULT_HEADERS,
+    TORX_HEADERS,
     _extract_names_from_html,
+    _extract_names_from_json,
     dedupe_names,
     fetch_participants_from_url,
     looks_like_name,
@@ -35,6 +37,46 @@ class ParticipantParsingTests(unittest.TestCase):
         names = _extract_names_from_html(html)
         self.assertIn("Kilian Jornet", names)
         self.assertIn("Jim Walmsley", names)
+
+    def test_extract_names_from_torx_json(self) -> None:
+        payload = {
+            "stats": {"iscritti": 3},
+            "iscritti": [
+                {"nome": "MARCO", "cognome": "SCIAMANNA", "gara_id": 1666},
+                {"nome": "ANDREA", "cognome": "ROSSI", "gara_id": 1666},
+                {"nome": "MARCO", "cognome": "SCIAMANNA", "gara_id": 1666},
+                {"nome": "Incomplete"},
+            ],
+        }
+
+        self.assertEqual(
+            _extract_names_from_json(payload),
+            ["MARCO SCIAMANNA", "ANDREA ROSSI"],
+        )
+
+    @patch("trailintel.participants.curl_requests.get")
+    def test_fetch_torx_participants(self, mock_get: Mock) -> None:
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "iscritti": [
+                {"nome": "MARCO", "cognome": "SCIAMANNA"},
+                {"nome": "ANDREA", "cognome": "ROSSI"},
+            ]
+        }
+        mock_get.return_value = response
+
+        names = fetch_participants_from_url(
+            "https://live.torxtrail.com/rankings/json/iscritti_1666.json"
+        )
+
+        self.assertEqual(names, ["MARCO SCIAMANNA", "ANDREA ROSSI"])
+        self.assertEqual(
+            mock_get.call_args.args[0],
+            ("https://live.torxtrail.com/rankings/json/iscritti_1666.json"),
+        )
+        self.assertEqual(mock_get.call_args.kwargs.get("headers"), TORX_HEADERS)
+        self.assertEqual(mock_get.call_args.kwargs.get("impersonate"), "chrome")
 
     @patch("trailintel.participants.requests.get")
     def test_fetch_yaka_participants_with_competition_filter(

@@ -222,6 +222,14 @@ trailintel --race-url "https://example.com/participants" --name-selector ".runne
 For multi-distance event pages (for example Yaka Inscription or Endu), pass
 `--competition-name` to select a single distance.
 
+TORX entrants JSON is supported directly:
+
+```bash
+trailintel \
+  --race-name "TOR 450" \
+  --race-url "https://live.torxtrail.com/rankings/json/iscritti_1666.json"
+```
+
 ### 2) From file
 
 ```bash
@@ -234,7 +242,7 @@ Supported file formats:
 - JSON:
   - list of strings
   - list of objects with a name-like key
-  - object with `participants`, `runners`, or `athletes`
+  - object with `participants`, `runners`, `athletes`, or TORX `iscritti`
 - TXT: one participant name per line
 
 ### 3) From direct names
