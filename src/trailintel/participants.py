@@ -18,6 +18,7 @@ NAME_KEYS = ("name", "full_name", "fullname", "athlete", "runner", "participant"
 FIRST_NAME_KEYS = ("first_name", "firstname", "given_name", "nome")
 LAST_NAME_KEYS = ("last_name", "lastname", "surname", "family_name", "cognome")
 JSON_COLLECTION_KEYS = ("participants", "runners", "athletes", "iscritti")
+JSON_SUFFIX = ".json"
 STOPWORDS = {
     "rank",
     "bib",
@@ -1067,14 +1068,14 @@ def _resolve_local_input_file(
 def load_participants_file(path: str | Path) -> list[str]:
     source = _resolve_local_input_file(
         path,
-        allowed_suffixes={".csv", ".json", ".txt"},
+        allowed_suffixes={".csv", JSON_SUFFIX, ".txt"},
         label="Participants file",
     )
     text = source.read_text(encoding="utf-8")
     suffix = source.suffix.lower()
     if suffix == ".csv":
         return _from_csv_text(text)
-    if suffix == ".json":
+    if suffix == JSON_SUFFIX:
         return _extract_names_from_json(json.loads(text))
     return dedupe_names(line for line in text.splitlines() if looks_like_name(line))
 
@@ -1176,7 +1177,7 @@ def fetch_participants_from_url(
     content_type = response.headers.get("content-type", "").lower()
     content = response.text
 
-    if "application/json" in content_type or resolved_url.lower().endswith(".json"):
+    if "application/json" in content_type or resolved_url.lower().endswith(JSON_SUFFIX):
         return _extract_names_from_json(response.json())
     if "text/csv" in content_type or resolved_url.lower().endswith(".csv"):
         return _from_csv_text(content)
@@ -1186,11 +1187,11 @@ def fetch_participants_from_url(
 def load_itra_overrides(path: str | Path) -> dict[str, float]:
     source = _resolve_local_input_file(
         path,
-        allowed_suffixes={".csv", ".json"},
+        allowed_suffixes={".csv", JSON_SUFFIX},
         label="ITRA overrides file",
     )
     text = source.read_text(encoding="utf-8")
-    if source.suffix.lower() == ".json":
+    if source.suffix.lower() == JSON_SUFFIX:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
             return {normalize_name(k): float(v) for k, v in parsed.items()}
