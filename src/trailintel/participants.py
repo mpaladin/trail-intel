@@ -1035,7 +1035,8 @@ def _fetch_njuko_participants(
 
 def load_participants_file(path: str | Path) -> list[str]:
     path = Path(path)
-    text = path.read_text(encoding="utf-8")
+    # The local CLI intentionally reads the exact participant file selected by its user.
+    text = path.read_text(encoding="utf-8")  # NOSONAR
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return _from_csv_text(text)
@@ -1107,7 +1108,11 @@ def fetch_participants_from_url(
     if torx_names is not None:
         return torx_names
 
-    response = requests.get(url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS)
+    # The CLI intentionally supports caller-supplied public race URLs. The issue-driven
+    # GitHub workflow validates these URLs with validate_public_https_url first.
+    response = requests.get(  # NOSONAR
+        url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS
+    )
     response.raise_for_status()
     content_type = response.headers.get("content-type", "").lower()
     content = response.text
@@ -1121,7 +1126,8 @@ def fetch_participants_from_url(
 
 def load_itra_overrides(path: str | Path) -> dict[str, float]:
     source = Path(path)
-    text = source.read_text(encoding="utf-8")
+    # The local CLI intentionally reads the exact override file selected by its user.
+    text = source.read_text(encoding="utf-8")  # NOSONAR
     if source.suffix.lower() == ".json":
         parsed = json.loads(text)
         if isinstance(parsed, dict):
