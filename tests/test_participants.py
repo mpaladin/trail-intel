@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from trailintel.participants import (
@@ -12,6 +14,8 @@ from trailintel.participants import (
     _extract_names_from_json,
     dedupe_names,
     fetch_participants_from_url,
+    load_itra_overrides,
+    load_participants_file,
     looks_like_name,
 )
 
@@ -77,6 +81,84 @@ class ParticipantParsingTests(unittest.TestCase):
         )
         self.assertEqual(mock_get.call_args.kwargs.get("headers"), TORX_HEADERS)
         self.assertEqual(mock_get.call_args.kwargs.get("impersonate"), "chrome")
+
+    def test_load_participants_file_rejects_path_outside_working_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "participants.txt"
+            source.write_text("Alice Martin\n", encoding="utf-8")
+            if source.resolve().is_relative_to(Path.cwd().resolve()):
+                self.skipTest(
+                    "System temporary directory is inside the working directory"
+                )
+
+            with self.assertRaisesRegex(ValueError, "current working directory"):
+                load_participants_file(source)
+
+    def test_load_participants_file_accepts_file_inside_working_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp_dir:
+            source = Path(temp_dir) / "participants.txt"
+            source.write_text("Alice Martin\nBob Trail\n", encoding="utf-8")
+
+            self.assertEqual(
+                load_participants_file(source),
+                ["Alice Martin", "Bob Trail"],
+            )
+
+    def test_load_itra_overrides_rejects_unsupported_extension(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp_dir:
+            source = Path(temp_dir) / "itra.txt"
+            source.write_text("Alice Martin,700\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "extensions"):
+                load_itra_overrides(source)
+
+    @patch("trailintel.participants.requests.get")
+    def test_generic_fetch_rejects_private_network_url(self, mock_get: Mock) -> None:
+        with self.assertRaisesRegex(ValueError, "must not target localhost"):
+            fetch_participants_from_url("https://127.0.0.1/participants.json")
+
+        mock_get.assert_not_called()
+
+    @patch("trailintel.participants.validate_public_https_url")
+    @patch("trailintel.participants.requests.get")
+    def test_generic_fetch_validates_redirect_target(
+        self,
+        mock_get: Mock,
+        mock_validate: Mock,
+    ) -> None:
+        first_response = Mock()
+        first_response.status_code = 302
+        first_response.headers = {"location": "https://cdn.example/participants.json"}
+
+        final_response = Mock()
+        final_response.status_code = 200
+        final_response.headers = {"content-type": "application/json"}
+        final_response.raise_for_status.return_value = None
+        final_response.json.return_value = {"participants": ["Alice Martin"]}
+
+        mock_get.side_effect = [first_response, final_response]
+        mock_validate.side_effect = lambda url, **_: url
+
+        names = fetch_participants_from_url("https://example.com/participants")
+
+        self.assertEqual(names, ["Alice Martin"])
+        self.assertEqual(
+            [call.args[0] for call in mock_validate.call_args_list],
+            [
+                "https://example.com/participants",
+                "https://cdn.example/participants.json",
+            ],
+        )
+        self.assertTrue(
+            all(
+                call.kwargs.get("allow_redirects") is False
+                for call in mock_get.call_args_list
+            )
+        )
 
     @patch("trailintel.participants.requests.get")
     def test_fetch_yaka_participants_with_competition_filter(
