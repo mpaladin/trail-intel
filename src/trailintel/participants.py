@@ -10,8 +10,12 @@ from urllib.parse import parse_qsl, urljoin, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from curl_cffi import requests as curl_requests
 
 NAME_KEYS = ("name", "full_name", "fullname", "athlete", "runner", "participant")
+FIRST_NAME_KEYS = ("first_name", "firstname", "given_name", "nome")
+LAST_NAME_KEYS = ("last_name", "lastname", "surname", "family_name", "cognome")
+JSON_COLLECTION_KEYS = ("participants", "runners", "athletes", "iscritti")
 STOPWORDS = {
     "rank",
     "bib",
@@ -88,6 +92,13 @@ ENDU_HEADERS = {
         "Chrome/145.0.0.0 Safari/537.36"
     ),
 }
+TORX_HOST_SUFFIX = "torxtrail.com"
+TORX_ENTRANTS_PATH_PATTERN = re.compile(r"/rankings/json/iscritti_\d+\.json$")
+TORX_HEADERS = {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.9",
+    "referer": "https://live.torxtrail.com/rankings/",
+}
 GENERIC_BROWSER_HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "accept-language": "en-US,en;q=0.9",
@@ -147,15 +158,48 @@ def _extract_names_from_json(value: object) -> list[str]:
             if isinstance(item, str):
                 names.append(item)
             elif isinstance(item, dict):
-                for key in NAME_KEYS:
-                    if key in item and isinstance(item[key], str):
-                        names.append(item[key])
-                        break
+                candidate = _extract_name_from_json_object(item)
+                if candidate:
+                    names.append(candidate)
     elif isinstance(value, dict):
-        for key in ("participants", "runners", "athletes"):
+        candidate = _extract_name_from_json_object(value)
+        if candidate:
+            names.append(candidate)
+        for key in JSON_COLLECTION_KEYS:
             if key in value:
                 names.extend(_extract_names_from_json(value[key]))
     return dedupe_names(names)
+
+
+def _extract_name_from_json_object(item: dict[object, object]) -> str | None:
+    for key in NAME_KEYS:
+        value = item.get(key)
+        if isinstance(value, str) and normalize_name(value):
+            return value
+
+    first_name = next(
+        (
+            value
+            for key in FIRST_NAME_KEYS
+            if isinstance((value := item.get(key)), str) and normalize_name(value)
+        ),
+        None,
+    )
+    last_name = next(
+        (
+            value
+            for key in LAST_NAME_KEYS
+            if isinstance((value := item.get(key)), str) and normalize_name(value)
+        ),
+        None,
+    )
+    if first_name is None or last_name is None:
+        return None
+
+    full_name = normalize_name(f"{first_name} {last_name}")
+    if not _looks_like_person_name_permissive(full_name):
+        return None
+    return full_name
 
 
 def _extract_names_from_html(html: str, selector: str | None = None) -> list[str]:
@@ -232,6 +276,32 @@ def _looks_like_person_name_permissive(text: str) -> bool:
     if any(token.casefold() in STOPWORDS for token in tokens):
         return False
     return True
+
+
+def _fetch_torx_participants(
+    url: str,
+    *,
+    timeout: int,
+    competition_name: str | None,
+) -> list[str] | None:
+    _ = competition_name  # A TORX entrants JSON file represents one race.
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    is_torx_host = host == TORX_HOST_SUFFIX or host.endswith(f".{TORX_HOST_SUFFIX}")
+    if not is_torx_host:
+        return None
+    if not TORX_ENTRANTS_PATH_PATTERN.fullmatch(parsed.path.casefold()):
+        return None
+
+    response = curl_requests.get(
+        url,
+        headers=TORX_HEADERS,
+        impersonate="chrome",
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return _extract_names_from_json(response.json())
 
 
 def _normalize_raceresult_name(raw: str) -> str:
@@ -965,7 +1035,8 @@ def _fetch_njuko_participants(
 
 def load_participants_file(path: str | Path) -> list[str]:
     path = Path(path)
-    text = path.read_text(encoding="utf-8")
+    # The local CLI intentionally reads the exact participant file selected by its user.
+    text = path.read_text(encoding="utf-8")  # NOSONAR
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return _from_csv_text(text)
@@ -1029,7 +1100,19 @@ def fetch_participants_from_url(
     if endu_names is not None:
         return endu_names
 
-    response = requests.get(url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS)
+    torx_names = _fetch_torx_participants(
+        url,
+        timeout=timeout,
+        competition_name=competition_name,
+    )
+    if torx_names is not None:
+        return torx_names
+
+    # The CLI intentionally supports caller-supplied public race URLs. The issue-driven
+    # GitHub workflow validates these URLs with validate_public_https_url first.
+    response = requests.get(  # NOSONAR
+        url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS
+    )
     response.raise_for_status()
     content_type = response.headers.get("content-type", "").lower()
     content = response.text
@@ -1043,7 +1126,8 @@ def fetch_participants_from_url(
 
 def load_itra_overrides(path: str | Path) -> dict[str, float]:
     source = Path(path)
-    text = source.read_text(encoding="utf-8")
+    # The local CLI intentionally reads the exact override file selected by its user.
+    text = source.read_text(encoding="utf-8")  # NOSONAR
     if source.suffix.lower() == ".json":
         parsed = json.loads(text)
         if isinstance(parsed, dict):
