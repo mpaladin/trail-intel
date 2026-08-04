@@ -245,6 +245,9 @@ Supported file formats:
   - object with `participants`, `runners`, `athletes`, or TORX `iscritti`
 - TXT: one participant name per line
 
+Local participant and ITRA override files must resolve inside the current
+working directory; paths and symlinks that escape it are rejected.
+
 ### 3) From direct names
 
 ```bash

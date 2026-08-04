@@ -12,6 +12,8 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from curl_cffi import requests as curl_requests
 
+from trailintel.github_pipeline import validate_public_https_url
+
 NAME_KEYS = ("name", "full_name", "fullname", "athlete", "runner", "participant")
 FIRST_NAME_KEYS = ("first_name", "firstname", "given_name", "nome")
 LAST_NAME_KEYS = ("last_name", "lastname", "surname", "family_name", "cognome")
@@ -99,6 +101,8 @@ TORX_HEADERS = {
     "accept-language": "en-US,en;q=0.9",
     "referer": "https://live.torxtrail.com/rankings/",
 }
+GENERIC_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+MAX_GENERIC_REDIRECTS = 5
 GENERIC_BROWSER_HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "accept-language": "en-US,en;q=0.9",
@@ -1033,16 +1037,75 @@ def _fetch_njuko_participants(
     return dedupe_names(names)
 
 
+def _resolve_local_input_file(
+    path: str | Path,
+    *,
+    allowed_suffixes: set[str],
+    label: str,
+) -> Path:
+    input_root = Path.cwd().resolve()
+    candidate = Path(path).expanduser()
+    try:
+        source = candidate.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(f"{label} does not exist: {candidate}") from exc
+
+    try:
+        source.relative_to(input_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"{label} must be inside the current working directory: {input_root}"
+        ) from exc
+    if not source.is_file():
+        raise ValueError(f"{label} must be a regular file: {source}")
+    if source.suffix.casefold() not in allowed_suffixes:
+        expected = ", ".join(sorted(allowed_suffixes))
+        raise ValueError(f"{label} must use one of these extensions: {expected}")
+    return source
+
+
 def load_participants_file(path: str | Path) -> list[str]:
-    path = Path(path)
-    # The local CLI intentionally reads the exact participant file selected by its user.
-    text = path.read_text(encoding="utf-8")  # NOSONAR
-    suffix = path.suffix.lower()
+    source = _resolve_local_input_file(
+        path,
+        allowed_suffixes={".csv", ".json", ".txt"},
+        label="Participants file",
+    )
+    text = source.read_text(encoding="utf-8")
+    suffix = source.suffix.lower()
     if suffix == ".csv":
         return _from_csv_text(text)
     if suffix == ".json":
         return _extract_names_from_json(json.loads(text))
     return dedupe_names(line for line in text.splitlines() if looks_like_name(line))
+
+
+def _fetch_generic_public_url(
+    url: str,
+    *,
+    timeout: int,
+) -> tuple[requests.Response, str]:
+    current_url = validate_public_https_url(url, label="Race URL")
+    for _ in range(MAX_GENERIC_REDIRECTS + 1):
+        response = requests.get(
+            current_url,
+            timeout=timeout,
+            headers=GENERIC_BROWSER_HEADERS,
+            allow_redirects=False,
+        )
+        if response.status_code not in GENERIC_REDIRECT_STATUSES:
+            return response, current_url
+
+        location = response.headers.get("location", "").strip()
+        if not location:
+            return response, current_url
+        redirected_url = urljoin(current_url, location)
+        current_url = validate_public_https_url(
+            redirected_url,
+            label="Race URL redirect",
+        )
+    raise requests.TooManyRedirects(
+        f"Race URL exceeded {MAX_GENERIC_REDIRECTS} redirects."
+    )
 
 
 def fetch_participants_from_url(
@@ -1108,26 +1171,25 @@ def fetch_participants_from_url(
     if torx_names is not None:
         return torx_names
 
-    # The CLI intentionally supports caller-supplied public race URLs. The issue-driven
-    # GitHub workflow validates these URLs with validate_public_https_url first.
-    response = requests.get(  # NOSONAR
-        url, timeout=timeout, headers=GENERIC_BROWSER_HEADERS
-    )
+    response, resolved_url = _fetch_generic_public_url(url, timeout=timeout)
     response.raise_for_status()
     content_type = response.headers.get("content-type", "").lower()
     content = response.text
 
-    if "application/json" in content_type or url.lower().endswith(".json"):
+    if "application/json" in content_type or resolved_url.lower().endswith(".json"):
         return _extract_names_from_json(response.json())
-    if "text/csv" in content_type or url.lower().endswith(".csv"):
+    if "text/csv" in content_type or resolved_url.lower().endswith(".csv"):
         return _from_csv_text(content)
     return _extract_names_from_html(content, selector=selector)
 
 
 def load_itra_overrides(path: str | Path) -> dict[str, float]:
-    source = Path(path)
-    # The local CLI intentionally reads the exact override file selected by its user.
-    text = source.read_text(encoding="utf-8")  # NOSONAR
+    source = _resolve_local_input_file(
+        path,
+        allowed_suffixes={".csv", ".json"},
+        label="ITRA overrides file",
+    )
+    text = source.read_text(encoding="utf-8")
     if source.suffix.lower() == ".json":
         parsed = json.loads(text)
         if isinstance(parsed, dict):
